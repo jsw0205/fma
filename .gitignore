@@ -1,0 +1,11 @@
+# AURIX Development Studio build output
+Debug/
+Release/
+.metadata/
+
+# Local tool/agent config (not project source)
+.claude/
+.agents/
+
+# Editor backups made during manual experiments
+*.bak

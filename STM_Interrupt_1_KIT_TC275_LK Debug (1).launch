@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="si.isystem.eclipse.debug.launch.debugLaunchType">
+    <stringAttribute key="afterDownloadAction" value="none"/>
+    <stringAttribute key="afterDownloadSymbol" value=""/>
+    <stringAttribute key="communicationType" value="USB"/>
+    <booleanAttribute key="createSMPConfig" value="true"/>
+    <stringAttribute key="deviceName" value="TC275T"/>
+    <stringAttribute key="hardwareType" value="IFX_DAS"/>
+    <stringAttribute key="imageCheck" value="Default"/>
+    <booleanAttribute key="isAnalyzeSourceFiles" value="false"/>
+    <booleanAttribute key="isBringWinIdeaToTop" value="true"/>
+    <booleanAttribute key="isLaunchInvisibleWinIdeaInstance" value="true"/>
+    <booleanAttribute key="isShutDownWinIdeaAfterTerminate" value="true"/>
+    <booleanAttribute key="isVerboseMode" value="false"/>
+    <booleanAttribute key="isVerifyAfterDownload" value="true"/>
+    <intAttribute key="org.eclipse.cdt.launch.ATTR_BUILD_BEFORE_LAUNCH_ATTR" value="2"/>
+    <stringAttribute key="org.eclipse.cdt.launch.COREFILE_PATH" value=""/>
+    <stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_ID" value="IConnectDebugger.winIdea"/>
+    <booleanAttribute key="org.eclipse.cdt.launch.DEBUGGER_STOP_AT_MAIN" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_STOP_AT_MAIN_SYMBOL" value="core0_main"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="Debug\STM_Interrupt_1_KIT_TC275_LK.elf"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="STM_Interrupt_1_KIT_TC275_LK"/>
+    <booleanAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_AUTO_ATTR" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_ID_ATTR" value="com.infineon.aurix.buildsystem.managed.configuration.binary.1194502010"/>
+    <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/STM_Interrupt_1_KIT_TC275_LK"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="4"/>
+    </listAttribute>
+    <stringAttribute key="selectedDevice" value=""/>
+    <stringAttribute key="winIDEA_Plugin" value="HASYST"/>
+    <stringAttribute key="workspaceFileName" value=".ads/winIDEAWorkspaces/Debug/ADS.xjrf"/>
+</launchConfiguration>

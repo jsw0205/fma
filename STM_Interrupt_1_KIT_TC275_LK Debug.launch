@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="com.rt.hightec.agent.launcher.launchConfigurationType">
+    <stringAttribute key="ACC_HW" value="DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6"/>
+    <booleanAttribute key="ENABLE_AGENTLOG" value="false"/>
+    <booleanAttribute key="ENABLE_FLASHING" value="true"/>
+    <booleanAttribute key="ENABLE_STOPPING" value="true"/>
+    <stringAttribute key="EXECUTABLE_PATH" value="${workspace_loc}/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf"/>
+    <stringAttribute key="STOP_FUNCTION" value="core0_main"/>
+    <stringAttribute key="SVD" value="C:/Infineon/AURIX-Studio-1.10.28/build_system/bundled-artefacts-repo/svd/tc27xdpd/1.1-2/device.svd"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="STM_Interrupt_1_KIT_TC275_LK"/>
+    <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/STM_Interrupt_1_KIT_TC275_LK"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="4"/>
+    </listAttribute>
+    <stringAttribute key="org.eclipse.debug.ui.ATTR_LOCATION" value="/STM_Interrupt_1_KIT_TC275_LK/STM_Interrupt_1_KIT_TC275_LK Debug.launch"/>
+    <stringAttribute key="org.eclipse.debug.ui.ATTR_PROJECT_NAME" value="STM_Interrupt_1_KIT_TC275_LK"/>
+    <booleanAttribute key="org.eclipse.debug.ui.ATTR_SHARED" value="true"/>
+    <stringAttribute key="org.eclipse.tcf.debug.MemoryMap" value="[{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 2: CPU2 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;0c17f4d4-dbd8-4ec7-b92f-dd242ecfab3f&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 2: CPU2 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;112328ac-67d3-4b02-8aea-760b23b6c5cd&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 2: CPU2 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;9cbbc3f6-0fd0-441c-9c26-e953e1686303&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 0: CPU0 TriCore 1.6E&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;1ff8466b-e060-49b5-bde1-ed68fb78f523&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 2: CPU2 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;4f46d1ad-6ca5-4ef8-9fb9-799de22f661e&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 0: CPU0 TriCore 1.6E&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;148d4830-b5f9-4f41-af05-b25a6f61a2b1&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 2: CPU2 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;8e4c20f3-8069-4690-8e9e-c6f353fda0a1&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 0: CPU0 TriCore 1.6E&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;fb1c2598-4f7c-4807-8df2-2d659c45cc55&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 1: CPU1 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;d43ac8b6-f8d5-4bd5-ab09-7e814f6a0063&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 2: CPU2 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;73ff8449-91f7-4171-b42e-d9cf7e831f60&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 0: CPU0 TriCore 1.6E&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;c42a1f4a-8065-419b-81f6-d505717f5324&quot;},{&quot;FileName&quot;:&quot;C:/AurixProject/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf&quot;,&quot;ID&quot;:&quot;/DAS JDS AURIX LITE KIT V1.1 LK7Q6ZV6/Core 1: CPU1 TriCore 1.6P&quot;,&quot;Flags&quot;:0,&quot;UUID&quot;:&quot;e580c4a9-1a43-4eab-9180-d655376d5891&quot;}]"/>
+    <stringAttribute key="org.eclipse.tcf.debug.PeerID" value="TCP:127.0.0.1:1534"/>
+    <stringAttribute key="org.eclipse.tcf.debug.ProjectName" value="STM_Interrupt_1_KIT_TC275_LK"/>
+    <booleanAttribute key="org.eclipse.tcf.debug.RunLocalAgent" value="false"/>
+    <booleanAttribute key="org.eclipse.tcf.debug.RunLocalServer" value="false"/>
+    <booleanAttribute key="org.eclipse.tcf.debug.UseLocalAgent" value="false"/>
+    <stringAttribute key="org.eclipse.tcf.debug.executable_name" value="${workspace_loc}/STM_Interrupt_1_KIT_TC275_LK/Debug/STM_Interrupt_1_KIT_TC275_LK.elf"/>
+    <stringAttribute key="sessionID" value="295bf9af-61f8-4586-95d4-3c0019572ffd"/>
+</launchConfiguration>

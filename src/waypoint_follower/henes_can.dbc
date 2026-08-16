@@ -1,0 +1,110 @@
+VERSION ""
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIG_TYPE_REF_
+    VAL_TABLE_
+    SIG_GROUP_
+    SIG_VALTYPE_
+    SIGTYPE_VALTYPE_
+    BO_TX_BU_
+    BA_DEF_REL_
+    BA_REL_
+    BA_DEF_DEF_REL_
+    BU_SG_REL_
+    BU_EV_REL_
+    BU_BO_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: HOST AURIX
+
+BO_ 512 CONTROL: 8 HOST
+ SG_ rpm : 0|16@1- (1,0) [-32768|32767] "rpm" AURIX
+ SG_ steer : 16|16@1- (1,0) [-32768|32767] "raw_deg_x_scale" AURIX
+ SG_ enable : 32|8@1+ (1,0) [0|1] "" AURIX
+ SG_ stop_mode : 40|8@1+ (1,0) [0|2] "" AURIX
+ SG_ reserved_200 : 48|16@1+ (1,0) [0|65535] "" AURIX
+
+BO_ 257 STEERING_STATUS: 8 HOST
+ SG_ current_pot : 0|16@1+ (1,0) [0|65535] "count" HOST
+ SG_ target_pot : 16|16@1+ (1,0) [0|65535] "count" HOST
+ SG_ current_angle : 32|16@1- (0.1,0) [-3276.8|3276.7] "deg" HOST
+ SG_ target_angle : 48|16@1- (0.1,0) [-3276.8|3276.7] "deg" HOST
+
+BO_ 258 DRIVE_STATUS: 8 HOST
+ SG_ encoder_count : 0|16@1- (1,0) [-32768|32767] "count" HOST
+ SG_ rpm : 16|16@1- (0.1,0) [-3276.8|3276.7] "rpm" HOST
+ SG_ pwm_duty : 32|16@1- (1,0) [-32768|32767] "" HOST
+ SG_ target_rpm : 48|16@1- (1,0) [-32768|32767] "rpm" HOST
+
+BO_ 515 CONTROL_META: 8 HOST
+ SG_ target_rpm : 0|16@1- (1,0) [-32768|32767] "rpm" AURIX
+ SG_ target_steer : 16|16@1- (1,0) [-32768|32767] "raw_deg_x_scale" AURIX
+ SG_ req_stop_mode : 32|8@1+ (1,0) [0|2] "" AURIX
+ SG_ controller_id : 40|8@1+ (1,0) [0|255] "" AURIX
+ SG_ seq : 48|8@1+ (1,0) [0|255] "" AURIX
+ SG_ reserved_203 : 56|8@1+ (1,0) [0|255] "" AURIX
+
+BO_ 260 DIAG_STATUS: 8 HOST
+ SG_ applied_stop_mode : 0|8@1+ (1,0) [0|2] "" HOST
+ SG_ fault_flags : 8|8@1+ (1,0) [0|255] "" HOST
+ SG_ steer_pwm_duty : 16|16@1- (1,0) [-32768|32767] "" HOST
+ SG_ supply_voltage_mV : 32|16@1+ (1,0) [0|65535] "mV" HOST
+ SG_ rx_seq_echo : 48|8@1+ (1,0) [0|255] "" HOST
+ SG_ reserved_104 : 56|8@1+ (1,0) [0|255] "" HOST
+
+CM_ BU_ HOST "Jetson/RPi 쪽 ROS2 스택 (control_arbiter가 유일한 실제 제어 송신자)";
+CM_ BU_ AURIX "TC275 조향/구동 액추에이션 펌웨어";
+
+CM_ BO_ 512 "실제 제어 프레임 - 기존, 안 건드림. steer는 CAN_STEER_SCALE(30.0/14.3≈2.098)이 이미 곱해진 firmware-scale raw 값.";
+CM_ BO_ 257 "조향 피드백 - 기존, 안 건드림.";
+CM_ BO_ 258 "구동 피드백 - 기존, 안 건드림.";
+CM_ BO_ 515 "2026-08-15 신규. 실제 제어엔 안 쓰임 - CONTROL(512)과 같은 틱에 같은 값으로 같이 쏘는 로깅/CANoe 가시성 전용 프레임. rpm/steer/stop_mode는 CONTROL(512)의 값을 그대로 미러링함.";
+CM_ SG_ 515 controller_id "그 틱에 실제로 운전권을 쥔 소스 - 상세 사유는 호스트의 arbiter_can_*.csv 로그 참고 (이 신호는 CANoe에서 한눈에 보는 용도, 세분화된 원인까지는 못 담음).";
+CM_ SG_ 515 seq "0-255 롤오버. DIAG_STATUS(260).rx_seq_echo로 그대로 되돌아옴 - 프레임 드롭/왕복 확인용.";
+CM_ BO_ 260 "2026-08-15 신규, 펌웨어 미구현 (파싱 함수만 호스트에 준비됨). AURIX가 CONTROL(512)/CONTROL_META(515)와 별개로 주기적으로 쏴야 함.";
+CM_ SG_ 260 applied_stop_mode "펌웨어가 *실제로* 적용한 상태 - CONTROL_META(515).req_stop_mode와 다르면 명령이 안 먹힌 것. 주의: 이 신호의 0/1/2는 req_stop_mode의 0/1/2와 의미가 다름 (아래 VAL_ 참고) - 액추에이션 레이어가 StopHoldEnable 하나뿐이라 normal/hill을 구분 못해 재정의됨.";
+CM_ SG_ 260 fault_flags "비트필드. bit0(COMM_TIMEOUT)만 구현됨, 나머지 비트는 항상 0 (미구현, 아래 VAL_TABLE 참고).";
+CM_ SG_ 260 rx_seq_echo "CONTROL_META(515).seq를 그대로 되돌려줌.";
+
+VAL_ 512 stop_mode 0 "normal_hold" 1 "flat_coast" 2 "hill" ;
+VAL_ 515 req_stop_mode 0 "normal_hold" 1 "flat_coast" 2 "hill" ;
+VAL_ 260 applied_stop_mode 0 "disabled_motor_off" 1 "flat_coast" 2 "active_hold" ;
+
+VAL_ 515 controller_id
+    0 "SAFE_STOP"
+    1 "GPS_FALLBACK"
+    2 "CAMERA"
+    3 "EVENT_STOP"
+    4 "EVENT_GPS_PRIORITY"
+    5 "EVENT_GPS_PRIORITY_SLOW"
+    6 "EVENT_AVOID_SCAN"
+    7 "EVENT_AVOID_ACTIVE"
+    8 "EVENT_AVOID_FAILSAFE"
+    9 "EVENT_PARKING_LEFT_MAPPING"
+    10 "EVENT_PARKING_LEFT_ACTIVE"
+    11 "EVENT_PARKING_LEFT_WAIT"
+    12 "EVENT_PARKING_RIGHT_MAPPING"
+    13 "EVENT_PARKING_RIGHT_ACTIVE"
+    14 "EVENT_PARKING_RIGHT_WAIT"
+    255 "UNKNOWN" ;
+
+VAL_ 260 fault_flags
+    0 "none"
+    1 "COMM_TIMEOUT" ;

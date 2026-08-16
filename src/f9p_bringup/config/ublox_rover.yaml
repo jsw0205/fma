@@ -1,0 +1,59 @@
+ublox_gps_node:
+  ros__parameters:
+    config_on_startup: true
+    debug: 1
+
+    save:
+      mask: 3103  # Save I/O, Message, INF Message, Nav, Receiver Manager,
+                  # Antenna, and Logging Configuration
+      device: 4   # Save to EEPROM
+
+    device: /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00
+    frame_id: gps
+
+    # Rover settings (Disable Survey-in/Fixed base mode)
+    tmode3: 0
+    dynamic_model: portable
+    fix_mode: auto
+    enable_ppp: false
+    dr_limit: 0
+
+    # Set default rates (matches the validated ZED-F9P setup, from
+    # /opt/ros/humble/share/ublox_gps/config/c94_m8p_rover.yaml)
+    rate: 20.0 # Measurement rate in Hz
+    nav_rate: 1 # Navigation rate (number of measurement cycles)
+
+    uart1:
+      baudrate: 19200
+      in: 32  # RTCM 3
+      out: 0  # No UART out for rover
+
+    # Actual connection is USB (/dev/ttyACM0), not UART1 - the receiver's
+    # USB port has its own separate in/out protocol config, so RTCM3 has
+    # to be enabled here too or incoming RTCM bytes just get dropped.
+    usb:
+      in: 33   # UBX (1) + RTCM3 (32)
+      out: 3   # UBX (1) + NMEA (2)
+
+    gnss:
+      glonass: true
+      beidou: false
+      qzss: true
+
+    dgnss_mode: 3 # Fixed mode
+
+    # Enable specific publishers
+    publish:
+      all: true
+      nmea: true           # Publish NMEA sentences (e.g. for NTRIP client feedback)
+      nav:
+        pvt: true          # Publish NavPVT (contains fix status, accuracy)
+        sat: true          # Publish NavSAT (satellite tracking info)
+        posllh: true       # Publish NavPOSLLH (position data)
+        status: true       # Publish NavSTATUS
+      rxm:
+        rtcm: true         # Monitor received RTCM messages status
+      mon:
+        hw: true           # Publish MonHW (antenna a_status/a_power, jamming
+                            # state) - diagnostic for the num_sv=0 investigation,
+                            # see README "2026-07-28 session"

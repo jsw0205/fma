@@ -1,0 +1,112 @@
+obstacle_avoid_node:
+  ros__parameters:
+
+    scan_topic: /scan
+
+    # ------------------------------------------------------------
+    # 라이다 장착 보정 - HENES 그릴 장착. 최종 실측 확인 (2026-07-24, 주변
+    # 통행인 없는 상태에서 좌/우 각각 재확인): 오른쪽 물체 -> 조정각 양수,
+    # 왼쪽 물체 -> 조정각 음수 -> lateral_sign=+1.
+    # 마운트를 만지거나 재장착하면 반드시 재검증할 것 (이번 세션 중 여러 번
+    # 바뀐 적 있음 - 물체 하나만 놓고, 주변에 사람 없는 상태에서 raw 각도
+    # 확인하는 방법 사용. 사람이 지나가면 결과가 오염되니 주의).
+    # ------------------------------------------------------------
+    angle_offset_deg: 180.0
+    invert_angle: false
+    lateral_sign: 1.0
+
+    # ------------------------------------------------------------
+    # 전방 인식 범위 - 그릴 장착(지상고 12.5cm) 기준 임시값, 실차 튜닝 예정
+    # ------------------------------------------------------------
+    front_angle_deg: 50.0   # 2026-07-30: 35->50, 측면 장애물 더 일찍 감지하도록 확대
+    min_range: 0.20
+    max_consider_range: 2.5   # 2026-07-30: 3.0->2.5로 재조정
+    min_points: 2
+    cluster_range_tol: 0.30
+
+    # ------------------------------------------------------------
+    # 차량 제원 (HENES 실차)
+    # ------------------------------------------------------------
+    vehicle_width: 0.8
+    wheelbase: 0.735
+    # 2026-07-25 실측값. R을 더 키워서 회피각을 줄이는 건 STOP/d_min 안전판단도
+    # 같이 느슨해져서 중단 - 다른 방법으로 회피 범위 조정하는 중.
+    turn_radius_override: 2.874   # 2026-07-30: 2.775->2.874, 07-26/27 정밀 실측값으로 갱신 (장애물 접촉 문제로 조정)
+    safety_margin: 0.0     # 2026-07-30: 사용자 요청으로 0으로 재조정
+    reaction_margin: 0.0   # 2026-07-30: 사용자 요청으로 0으로 재조정
+
+    # 조향 +-30 사용. R 은 축거 기반 이론값(bicycle model)으로 코드에서 계산.
+    avoid_steer_left: -30
+    avoid_steer_right: 30
+    avoid_rpm: 80   # 2026-07-30: 사용자 요청으로 80으로 재조정
+    cruise_rpm: 30  # CLEAR(장애물 없음) 상태 순항 속도
+
+    alpha_max_deg: 60.0
+    alpha_extra_deg: 0.0   # 2026-07-30: 0으로 축소 (사용자 요청, 위험 인지하고 진행)
+
+    # ------------------------------------------------------------
+    # 장애물(HENES 동일 차종) 통과거리 - 회피 후 복귀 전 최소 직진거리
+    # ------------------------------------------------------------
+    obstacle_length: 1.43   # 2026-07-30: 1.0->1.43, 원래 실측값(HENES 동일 차종)으로 복원
+    pass_margin: 0.0       # 2026-07-30: 1.0->0.0 (사용자 요청)
+
+    # ------------------------------------------------------------
+    # 엔코더 환산: 바퀴둘레(pi*0.27m) / 300count = 약 2.827mm/count
+    # ------------------------------------------------------------
+    wheel_diameter: 0.27
+    encoder_counts_per_rev: 300
+
+    # ------------------------------------------------------------
+    # 액추에이터 이상감지 (조향 피드백이 명령과 크게 다르면 STOP)
+    # ------------------------------------------------------------
+    enable_steer_fault_check: true
+    steer_fault_tol_deg: 15.0
+    steer_fault_hold_sec: 2.5  # RETURN 은 반대방향 큰 스윙이라 1.2초도 부족했음 (2026-07-25 확인)
+
+    # CAN 피드백 유실 시 안전정지
+    feedback_timeout_sec: 1.0
+
+    # ------------------------------------------------------------
+    # IMU (TAOBOTICS HFI, mrpt_sensor_imu_taobotics) - AVOID/RETURN
+    # 진행 판단용. yaw_start(AVOID 진입 시 yaw) 대비 현재 yaw 차이로 판단.
+    # ------------------------------------------------------------
+    imu_topic: /taobotics/sensor
+    yaw_tol_deg: 4.0              # RETURN 완료로 볼 yaw 오차 허용치
+    imu_feedback_timeout_sec: 1.0  # IMU 피드백 유실 시 안전정지
+
+    # ------------------------------------------------------------
+    # GPS 웨이포인트 방향 가중치 (2026-07-31) - 애매할 때 웨이포인트
+    # 쪽으로 붙는 방향 우선. 자세한 설명은 obstacle_avoid_node.py 참고.
+    # ------------------------------------------------------------
+    gps_cross_track_topic: gps_control/cross_track_error_m
+    gps_side_bias_pts: 5   # 2026-07-31: 3->5 (사용자 요청)
+    gps_bias_timeout_sec: 1.0
+
+    # ------------------------------------------------------------
+    # CAN 통신 (구 can_bridge_node 병합, pcan_jetson_live.py 프로토콜)
+    # ------------------------------------------------------------
+    can_channel: can0
+    can_bitrate: 500000
+    tx_id: 512            # 0x200
+    drive_status_id: 258  # 0x102
+    steering_status_id: 257  # 0x101
+    can_enable_topic: /can_bridge/enable
+    # control_arbiter is the only thing that writes CAN when running the
+    # full stack together (post_gps_drive.launch.py) - this node still
+    # reads CAN feedback (0x101/0x102) for its own steer-fault check, but
+    # must not also write. Set true only when running obstacle_avoid.launch.py
+    # standalone (no arbiter in the loop).
+    write_can_directly: false
+    # can0 를 미리 수동으로 올려둔 상태를 가정 (sudo 비밀번호는 백그라운드
+    # 프로세스에서 입력 불가). 인터랙티브 터미널에서 직접 실행할 땐 true 가능.
+    auto_setup_interface: false
+    reconnect_period_sec: 5.0
+
+    # ------------------------------------------------------------
+    # 디바운스 / 히스테리시스 (CLEAR/STOP 상태에서만 적용)
+    # ------------------------------------------------------------
+    decision_hold: 3
+    side_switch_pts: 5
+
+    rate_hz: 15.0
+    log_period_sec: 1.0

@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+
+import base64
+import socket
+import time
+import serial
+
+# ===== Serial GPS =====
+GPS_PORT = "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00"
+GPS_BAUD = 19200  # matches the ZED-F9P's actual USB port baud (see f9p_bringup/config/ublox_rover.yaml)
+
+# ===== NTRIP =====
+CASTER_HOST = "RTS1.ngii.go.kr"
+CASTER_PORT = 2101
+MOUNTPOINT = "RTK-RTCM32"
+
+USERNAME = "PUT_NTRIP_USERNAME_HERE"
+PASSWORD = "PUT_NTRIP_PASSWORD_HERE"
+
+# PyGPSClient에서 Receiver로 성공했으면 GGA를 보내는 쪽이 안전함
+GGA_INTERVAL_SEC = 10.0
+
+# 대략 위치. VRS 아니면 크게 중요하지 않음.
+# 현재 로그 기준 근처값
+INIT_LAT = 37.303916
+INIT_LON = 127.907184
+INIT_ALT = 161.3
+
+
+def nmea_checksum(body: str) -> str:
+    csum = 0
+    for ch in body:
+        csum ^= ord(ch)
+    return f"{csum:02X}"
+
+
+def deg_to_nmea_lat(lat: float):
+    hemi = "N" if lat >= 0 else "S"
+    lat = abs(lat)
+    deg = int(lat)
+    minutes = (lat - deg) * 60.0
+    return f"{deg:02d}{minutes:08.5f}", hemi
+
+
+def deg_to_nmea_lon(lon: float):
+    hemi = "E" if lon >= 0 else "W"
+    lon = abs(lon)
+    deg = int(lon)
+    minutes = (lon - deg) * 60.0
+    return f"{deg:03d}{minutes:08.5f}", hemi
+
+
+def make_gga(lat: float, lon: float, alt: float) -> bytes:
+    t = time.gmtime()
+    utc = f"{t.tm_hour:02d}{t.tm_min:02d}{t.tm_sec:02d}.00"
+
+    lat_s, ns = deg_to_nmea_lat(lat)
+    lon_s, ew = deg_to_nmea_lon(lon)
+
+    # quality=1, sats=12, hdop=1.0 정도로 caster 위치 전달용 GGA
+    body = (
+        f"GPGGA,{utc},{lat_s},{ns},{lon_s},{ew},"
+        f"1,12,1.0,{alt:.1f},M,20.5,M,,"
+    )
+    return f"${body}*{nmea_checksum(body)}\r\n".encode("ascii")
+
+
+def read_latest_gga_from_gps(gps, timeout_sec=2.0):
+    deadline = time.time() + timeout_sec
+    latest = None
+
+    while time.time() < deadline:
+        try:
+            line = gps.readline()
+        except serial.SerialException:
+            # ublox_gps_node already owns this port; a concurrent read can
+            # transiently fail. Fall back to the hardcoded GGA below.
+            break
+        if not line:
+            continue
+
+        try:
+            text = line.decode("ascii", errors="ignore").strip()
+        except Exception:
+            continue
+
+        if text.startswith("$GNGGA") or text.startswith("$GPGGA"):
+            latest = text
+
+    if latest:
+        return (latest + "\r\n").encode("ascii")
+
+    return make_gga(INIT_LAT, INIT_LON, INIT_ALT)
+
+
+def connect_ntrip():
+    auth = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
+
+    req = (
+        f"GET /{MOUNTPOINT} HTTP/1.0\r\n"
+        f"Host: {CASTER_HOST}\r\n"
+        f"User-Agent: NTRIP pyRTK/1.0\r\n"
+        f"Authorization: Basic {auth}\r\n"
+        f"Ntrip-Version: Ntrip/1.0\r\n"
+        f"Connection: close\r\n"
+        f"\r\n"
+    ).encode("ascii")
+
+    sock = socket.create_connection((CASTER_HOST, CASTER_PORT), timeout=10)
+    sock.sendall(req)
+
+    header = b""
+    while b"\r\n\r\n" not in header:
+        chunk = sock.recv(1)
+        if not chunk:
+            break
+        header += chunk
+
+    print(header.decode("latin1", errors="ignore"))
+
+    if b"200" not in header and b"ICY 200 OK" not in header:
+        raise RuntimeError("NTRIP connection failed")
+
+    sock.settimeout(2.0)
+    return sock
+
+
+def main():
+    print("[RTK] opening GPS serial")
+    gps = serial.Serial(
+        GPS_PORT,
+        GPS_BAUD,
+        timeout=0.1,
+        write_timeout=1.0,
+    )
+
+    print("[RTK] reading latest GGA from GPS")
+    last_gga = read_latest_gga_from_gps(gps)
+    print("[RTK] GGA:", last_gga.decode(errors="ignore").strip())
+
+    while True:
+        sock = None
+
+        try:
+            print("[RTK] connecting caster")
+            sock = connect_ntrip()
+            print("[RTK] connected")
+
+            last_gga_time = 0.0
+            last_print = time.time()
+            byte_count = 0
+
+            while True:
+                now = time.time()
+
+                if now - last_gga_time >= GGA_INTERVAL_SEC:
+                    # 가능하면 GPS가 실제 뱉는 최신 GGA 사용
+                    gga = read_latest_gga_from_gps(gps, timeout_sec=0.3)
+                    sock.sendall(gga)
+                    last_gga_time = now
+                    print("[RTK] sent GGA:", gga.decode(errors="ignore").strip())
+
+                data = sock.recv(4096)
+                if not data:
+                    raise RuntimeError("caster closed connection")
+
+                gps.write(data)
+                byte_count += len(data)
+
+                if now - last_print >= 2.0:
+                    print(f"[RTK] writing RTCM to GPS: {byte_count} bytes/2s")
+                    byte_count = 0
+                    last_print = now
+
+        except KeyboardInterrupt:
+            print("\n[RTK] stopped")
+            break
+
+        except Exception as e:
+            print("[RTK] error:", e)
+            print("[RTK] reconnecting in 3 sec")
+            time.sleep(3)
+
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+
+if __name__ == "__main__":
+    main()

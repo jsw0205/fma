@@ -1,0 +1,11 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+
+# NTRIP 계정정보 평문 포함 - 실제 파일은 로컬에만, git엔 .example만
+src/rtk_bridge/rtk_bridge.py
+
+# GitHub 100MB 파일 제한 초과 - 별도 배포(zed_camera_standalone.zip 등)
+src/zed_camera/weights/yolopv2.pt

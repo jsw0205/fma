@@ -1,0 +1,208 @@
+==================================================================
+ZED2i + YOLOPv2 카메라 차선추종 노드 - 환경 셋업 가이드
+대상: 다른 AI 에이전트 / 팀원이 이 가이드만 보고 처음부터 셋업 가능하게
+작성 기준 머신: Ubuntu 22.04, ROS2 Humble, NVIDIA GPU(RTX 4050 노트북),
+                실제로 이 조합으로 동작 확인됨 (2026-08-07 기준)
+==================================================================
+
+[전제]
+- 하드웨어: ZED2i 스테레오 카메라 (USB3 연결)
+- OS: Ubuntu 22.04
+- ROS2: Humble, 이미 설치되어 있고 워크스페이스(~/ros2_ws)가 있다고
+  가정. 없으면 이 가이드 전에 ROS2 Humble 표준 설치부터 할 것.
+- 대상 노드: zed_camera 패키지의 yolopv2_zed_rpm_node - ZED2i의 RGB+
+  Depth 이미지를 받아 YOLOPv2로 차선을 검출하고 조향각(steering_deg)
+  을 퍼블리시하는 순수 ROS2 노드. 이 패키지 자체는 다른 커스텀 ROS
+  패키지에 의존하지 않는다 (표준 ROS 메시지 + torch/cv2/numpy만 필요).
+
+==================================================================
+STEP 1. NVIDIA 드라이버
+==================================================================
+목표 드라이버: 580.x (예: 580.173.02) - CUDA 13.0/13.3을 이미 지원함.
+
+[!!] 중요: ZED SDK 5.4.1은 CUDA >=13.0을 요구한다고 문서에 나와있지만,
+    그렇다고 최신 드라이버(595 등)로 바로 점프하지 말 것. 이 머신에서
+    595로 올렸다가 gdm3(디스플레이 매니저)가 깨지는 문제가 있었음.
+    580이 이미 CUDA 13.0/13.3을 지원하므로 595는 필요 없었다.
+
+절차:
+  1) 현재 드라이버 버전 확인: `nvidia-smi --query-gpu=driver_version --format=csv,noheader`
+  2) 580.x 계열이 아니면 Ubuntu "Additional Drivers" 또는
+     `sudo apt install nvidia-driver-580` 계열로 설치
+  3) 재부팅 후 `nvidia-smi`로 정상 인식 확인
+  4) 만약 드라이버 업그레이드 후 로그인 화면(gdm3)이 깨지면: 그 드라이버를
+     의심하고 한 단계 낮은 버전(580 계열)으로 다운그레이드할 것.
+     595는 이 조합에서 문제가 확인됐음.
+
+==================================================================
+STEP 2. ZED SDK 설치
+==================================================================
+버전: 5.4.1 (이 가이드 기준 검증된 버전)
+
+절차:
+  1) https://www.stereolabs.com/developers/release 에서 Ubuntu 22.04용
+     ZED SDK 5.4.1 설치 스크립트(.run) 다운로드
+  2) `chmod +x ZED_SDK_*.run && ./ZED_SDK_*.run` 실행, CUDA 관련
+     프롬프트에서 이미 설치된 CUDA 툴킷 사용하도록 진행
+  3) 설치 후 `/usr/local/zed/`에 SDK가 깔림
+  4) 확인:
+     ```
+     python3 -c "import pyzed.sl as sl; print(sl.Camera.get_sdk_version())"
+     ```
+     "5.4.1" 출력되면 정상. ImportError 나면 SDK의 Python API 설치
+     스크립트(`/usr/local/zed/get_python_api.py`)를 다시 실행할 것.
+  5) ZED2i를 USB3 포트에 연결한 뒌, SDK에 포함된 진단 툴
+     (`/usr/local/zed/tools/ZED_Diagnostic` 등)로 카메라 인식 확인.
+
+==================================================================
+STEP 3. PyTorch (CUDA 13 빌드)
+==================================================================
+버전: torch==2.13.0+cu130 (또는 그 시점 최신 CUDA13 대응 빌드)
+
+[!!] 중요: pip 기본 인덱스로 그냥 `pip install torch`하면 CPU 전용이
+    깔릴 수 있다. 반드시 CUDA 인덱스를 명시할 것.
+
+절차:
+  1) https://pytorch.org/get-started/locally/ 에서 "CUDA 13.x" 조합의
+     설치 명령 확인 (버전은 시점에 따라 바뀔 수 있으니 그때 최신 cu13x
+     빌드 사용)
+  2) 설치 후 GPU 인식 확인:
+     ```
+     python3 -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+     ```
+     `True`가 안 뜨면 드라이버(STEP 1)나 CUDA 툴킷 버전부터 재확인.
+     "처음엔 CPU에 물려있었다"는 이력이 있으니 반드시 확인할 것 -
+     설치가 "성공"해도 조용히 CPU 빌드가 깔리는 경우가 있음.
+
+==================================================================
+STEP 4. numpy 버전 고정 (충돌 주의)
+==================================================================
+[!!] 매우 중요한 충돌 포인트:
+  - `cv_bridge` + `python3-opencv` (ROS2 apt 패키지들) -> numpy<2 요구
+  - `pyzed`(ZED SDK Python API) + `transforms3d`(IMU 스택) -> numpy>=2 요구
+  이건 "설정을 잘못해서" 생기는 문제가 아니라 진짜 상호 배타적인
+  요구사항 충돌이다. 하나를 골라야 한다.
+
+이 가이드에서는 numpy<2로 고정한다 (카메라/GPS 위주 작업 우선순위):
+  ```
+  pip3 install "numpy<2"
+  ```
+  대가: IMU/`transforms3d` 관련 스택은 이 상태에서 깨질 수 있음.
+  IMU까지 같이 써야 하면 반대로 numpy>=2로 고정하고 cv_bridge 쪽을
+  소스 재빌드하거나 다른 우회가 필요함 - 이 가이드 범위 밖.
+
+==================================================================
+STEP 5. setuptools 버전 주의 (콜콘 빌드 깨짐 트랩)
+==================================================================
+[!!] torch 설치가 setuptools를 최신(80+, 예: 83.0.0)으로 자동으로
+    끌어올릴 수 있다. 이러면 colcon build가 다음 에러로 깨진다:
+    `error: option --uninstall not recognized`
+
+    항상 STEP 3(torch 설치) 이후, colcon build 하기 전에 확인:
+    ```
+    pip3 show setuptools   # Version 필드 확인
+    ```
+    80 이상이면:
+    ```
+    pip3 install "setuptools<80"
+    ```
+    (검증된 안착 버전: 79.0.1)
+
+    나중에 다른 pip 패키지를 설치하다가 그 패키지가 setuptools를 또
+    끌어올리면 재발할 수 있다 - colcon build가 갑자기 이 에러로
+    깨지기 시작하면 제일 먼저 `pip3 show setuptools`부터 확인할 것.
+
+==================================================================
+STEP 6. zed-ros2-wrapper 빌드
+==================================================================
+공식 Stereolabs 저장소를 워크스페이스 src에 소스로 받아서 빌드한다
+(apt 패키지가 아니라 소스 빌드).
+
+절차:
+  1) ~/ros2_ws/src/ 에 clone (서브모듈 포함):
+     ```
+     cd ~/ros2_ws/src
+     git clone --recursive https://github.com/stereolabs/zed-ros2-wrapper.git
+     ```
+  2) 의존성 설치:
+     ```
+     cd ~/ros2_ws
+     rosdep install --from-paths src --ignore-src -r -y
+     ```
+  3) 빌드:
+     ```
+     colcon build --symlink-install --packages-select zed_wrapper zed_components zed_ros2 zed_debug
+     ```
+     (STEP 5 setuptools 문제가 여기서 터질 수 있으니, 에러 나면 STEP 5
+     먼저 확인)
+  4) 소스:
+     ```
+     source ~/ros2_ws/install/setup.bash
+     ```
+  5) 확인: `ros2 pkg list | grep zed` 에 zed_wrapper 등이 나와야 함
+
+==================================================================
+STEP 7. zed_camera 패키지 (이 저장소 자체 패키지) 빌드
+==================================================================
+이 패키지는 위 SDK/wrapper 위에서 동작하는 우리 자체 노드다. 다른
+커스텀 ROS 패키지에 의존하지 않으므로 이 패키지 하나만 받아도 된다
+(zed_camera_standalone.zip 참고).
+
+절차:
+  1) src/zed_camera/ 를 ~/ros2_ws/src/ 아래 배치 (weights/yolopv2.pt
+     포함되어 있어야 함 - 없으면 노드가 모델을 못 읽음)
+  2) ```
+     cd ~/ros2_ws
+     colcon build --symlink-install --packages-select zed_camera
+     source install/setup.bash
+     ```
+
+==================================================================
+STEP 8. 실행 및 검증
+==================================================================
+1) ZED2i 연결한 채로 wrapper 먼저 실행 (터미널 1):
+   ```
+   ros2 launch zed_wrapper zed_camera.launch.py camera_model:=zed2i
+   ```
+   `/zed/zed_node/rgb/color/rect/image`, `/zed/zed_node/depth/depth_registered`,
+   `/zed/zed_node/odom` 등이 퍼블리시되는지 `ros2 topic list`로 확인.
+
+2) 차선추종 노드 실행 (터미널 2):
+   ```
+   ros2 run zed_camera yolopv2_zed_rpm_node
+   ```
+   GPS 노드가 없어도 동작함 (자체 fallback으로 ZED 자체 odom 속도 사용).
+
+3) 검증:
+   ```
+   ros2 topic echo /yolopv2_zed_node/steering_deg
+   ros2 topic echo /yolopv2_zed_node/lane_valid
+   ```
+   카메라 앞에 차선(또는 테이프로 표시한 선)을 두고 steering_deg가
+   그에 맞게 반응하면 정상.
+
+==================================================================
+이 머신에서 실제로 검증된 버전 스냅샷 (참고용)
+==================================================================
+- NVIDIA driver: 580.173.02 (GPU: RTX 4050 Laptop)
+- ZED SDK: 5.4.1
+- torch: 2.13.0+cu130 (CUDA 13.0, torch.cuda.is_available() == True)
+- numpy: 1.26.4
+- setuptools: 79.0.1
+- opencv(cv_bridge용, apt python3-opencv): 4.5.4
+- ROS2: Humble
+
+==================================================================
+트러블슈팅 빠른 체크리스트
+==================================================================
+- 드라이버 올린 뒤 로그인 화면이 깨짐 -> 580 계열로 낮출 것 (595 문제 확인됨)
+- torch.cuda.is_available() == False -> CPU 빌드가 깔렸을 가능성,
+  pytorch.org에서 CUDA 인덱스 명시해서 재설치
+- colcon build가 "--uninstall not recognized" 에러 -> setuptools 버전
+  확인, <80으로 고정
+- cv_bridge/opencv 관련 numpy ABI 에러 -> numpy 버전이 2.x로 올라갔는지
+  확인, <2로 재고정
+- pyzed import 실패 -> `/usr/local/zed/get_python_api.py` 재실행
+- 노드는 뜨는데 steering_deg가 항상 0/NaN -> weights/yolopv2.pt 경로
+  확인 (`weights` 파라미터), rgb_topic/depth_topic이 실제 zed_wrapper
+  토픽명과 일치하는지 확인

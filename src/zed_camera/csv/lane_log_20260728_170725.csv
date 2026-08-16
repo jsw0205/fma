@@ -1,0 +1,2 @@
+timestamp,lane_valid,side,lane_center_x,error_px,half_width,pixel_count,speed_mps,motor_rpm,steering_deg
+2026-07-28T08:07:27.682503+00:00,1,BOTH,708.5,68.5,522.1,16415,-0.00810309759224765,-1.5475776433946986,1.284

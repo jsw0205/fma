@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>obstacle_avoidance</name>
+  <version>0.1.0</version>
+  <description>
+    Reactive LaserScan-based obstacle avoidance for the RPLiDAR A3M1: picks a
+    side around the nearest obstacle and publishes steer/rpm avoidance
+    commands. Ported from the ROS1 Noetic obstacle_avoid_planner.py.
+  </description>
+
+  <maintainer email="user@example.com">user</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- HENES 차량 CAN 통신(obstacle_avoid_node 내장)용. apt: python3-can -->
+  <exec_depend>python3-can</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

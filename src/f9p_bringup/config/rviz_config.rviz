@@ -1,0 +1,126 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 78
+    Name: Displays
+    Property Grid State:
+      expanded:
+        - /Global Options1
+        - /Path1
+        - /Odometry1
+      split:
+        half: 0.5
+        value: 120
+    Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.699999988079071
+      Blocks: 3
+      Class: rviz_satellite/AerialMap
+      Draw Behind: false
+      ENU Aligned Reference Frame: odom
+      Enabled: true
+      Name: AerialMap
+      Object URI: https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
+      TF tolerance: 0.1
+      Timeout: 3
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /ublox_gps_node/fix
+      Use Local Map:
+        Meter per Pixel (Zoom 0): 0
+        Origin CRS: ""
+        "Origin X ": 0
+        "Origin Y ": 0
+        Value: false
+      Value: true
+      Visualize in UTM Frame: false
+      Zoom: 18
+    - Alpha: 1
+      Class: rviz_default_plugins/Grid
+      Collision Enabled: true
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 10
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Path (Trajectory)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /path
+      Color: 255; 0; 0             # Red path line
+      Line Style: Lines
+      Line Width: 0.05
+      Value: true
+    - Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: Odometry (Position & Covariance)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /odom
+      Position Tolerance: 0.1
+      Angle Tolerance: 0.1
+      Keep: 100
+      Color: 0; 255; 0             # Green arrow for current position
+      Shape:
+        Axes:
+          Axes Length: 0.5
+          Axes Radius: 0.05
+        Covariance:
+          Covariance: true
+          Color: 0; 255; 255       # Cyan covariance ellipse
+          Scale: 1.0               # Actual scale to visualize accuracy
+        Value: Axes
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF (Frames)
+      Frame Timeout: 15
+      Show Axes: true
+      Show Arrows: false
+      Show Names: true
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: odom              # Changed fixed frame to odom
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide During Use: false
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 15
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Name: Current View
+      Pitch: 0.785
+      Yaw: 0.785

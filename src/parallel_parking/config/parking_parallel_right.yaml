@@ -1,0 +1,246 @@
+rule_based_parallel_parking_node:
+  ros__parameters:
+    scan_topic: "/scan_parking"
+    odom_topic: "/wheel_odom"
+    odom_frame: "odom"
+    base_frame: "base_link"
+
+    # t_parking과 동일한 실차 및 뒤집힌 전방 LiDAR 기준
+    vehicle_length: 1.410
+    vehicle_width: 0.800
+    wheel_base: 0.735
+    base_to_front_bumper: 1.175
+    base_to_rear_bumper: 0.230
+    laser_x: 1.175
+    laser_y: 0.0
+    laser_yaw: 3.14159265
+    laser_yaw_extra: 0.0
+    laser_angle_sign: -1.0
+
+    # 평행주차 공간은 차량 진행 방향 기준 우측
+    parking_side: "right"
+    roi_x_min: -1.0
+    roi_x_max: 8.0
+    roi_y_min: -4.50
+    roi_y_max: -0.20
+    min_range: 0.25
+    max_range: 8.0
+    cluster_gap: 0.22
+    min_cluster_points: 1
+    max_cluster_points: 60
+    max_cluster_width: 0.45
+    cone_min_base_r: 0.25
+
+    # 실차가 들어갈 수 있는 평행 슬롯 범위
+    min_cones_for_plan: 4
+    min_cones_for_lock: 6
+    parallel_min_length: 1.85
+    # 차량 진행 방향의 주차공간 길이 상한(실측 약 4.5 m + 검출 오차 여유)
+    parallel_max_length: 5.00
+    parallel_expected_length: 2.20
+    parallel_min_width: 1.10
+    parallel_max_width: 4.00
+    # 먼 경계가 잠시 안 보일 때만 쓰는 폴백이며, 평소에는 LiDAR 실측값 사용
+    parallel_expected_width: 2.40
+    slot_axis_prior_max_error_deg: 40.0
+    use_start_axis_for_slot: true
+    slot_percentile_low: 5.0
+    slot_percentile_high: 95.0
+    parallel_goal_lateral_ratio: 0.50
+    parallel_goal_lateral_offset: 0.0
+    parallel_goal_longitudinal_offset: 0.0
+
+    # T자 주차와 같은 측면 막힘→열림→막힘 시간축 검출
+    temporal_gap_enable: true
+    # 끝 경계가 짧게 보이더라도 여러 스캔에 남도록 진행축 창을 넓힌다.
+    gap_side_window_along: 0.45
+    # 위 창 때문에 양 끝이 각각 0.45 m 안쪽에서 검출되는 것을 복원한다.
+    # 이번 실측 2.592 m + 2*0.45 m = 3.492 m로 실제 3.4 m와 대응한다.
+    gap_edge_longitudinal_compensation: 0.45
+    # 로그의 0.28~0.36 m 차체/장착부 반사를 제거
+    gap_side_min_distance: 0.55
+    gap_open_jump: 0.60
+    gap_close_jump: 0.30
+    gap_confirm_frames: 2
+    gap_baseline_alpha: 0.25
+
+    side_margin: 0.15
+    front_margin: 0.20
+    rear_margin: 0.20
+    collision_margin: 0.10
+    cone_radius: 0.14
+    cone_safety_stop_margin: 0.15
+    # 0.10 -> 0.07 (2026-08-12): real MANEUVER reverse aborted at
+    # cone=0.099 (1mm inside the 0.10 margin, collision=False) - this
+    # geometry legitimately runs that close to a cone, so loosen slightly
+    # rather than leaving it permanently ABORTed (no auto-recovery here).
+    reverse_cone_safety_stop_margin: 0.07
+    end_safety_margin: 0.12
+    side_safety_margin: 0.10
+    # 후진 명령 전에 첫 원호-직선-복귀 원호 전체에 차량 사각형을 적용한다.
+    swept_path_check_enable: true
+    swept_path_sample_step: 0.03
+    # 0.10 -> 0.07 (2026-08-12): real MANEUVER reverse aborted at
+    # inner=0.093 (cone was fine at 1.345) - same reasoning as
+    # reverse_cone_safety_stop_margin's identical comment above.
+    swept_path_boundary_margin: 0.07
+    # 막힘→열림→막힘 양쪽 장애물의 깊이 방향 경계도 충돌 대상으로 둔다.
+    swept_path_end_wall_check_enable: true
+    swept_path_max_candidates: 120
+
+    # t_parking과 동일한 명령 및 조향 모델
+    max_steer_cmd: 30
+    # 16:50 실차 arc 로그로 역산한 뒤차축 기준 회전반경:
+    # -30: R=2.154m -> 18.84deg, +30: R=2.255m -> 18.05deg
+    max_steer_angle_left_deg: 18.84
+    max_steer_angle_right_deg: 18.05
+    # 16:34 실차 로그에서 -steer 명령 중 yaw가 +0.9→+4.4deg로
+    # 계속 증가했다. 따라서 +yaw 오차를 되돌리는 조향은 +방향이다.
+    forward_turn_sign: -1.0
+    pre_straight_rpm: 20
+    reverse_rpm: -20
+    final_rpm: -20
+    maneuver_forward_rpm: 20
+    maneuver_reverse_rpm: -20
+    # 출차 역경로는 첫 실차 검증 전까지 반드시 저속으로 유지한다.
+    exit_forward_rpm: 8
+    exit_reverse_rpm: -8
+    # 25 RPM 실차에서는 첫 원호 정지 후 약 0.23 m / 6 deg를 더
+    # 진행했다. 구간 전체를 저속으로 제한하지 않고 현재 vx/wz로
+    # 감속 창을 계산해 끝부분만 성공했던 8 RPM으로 낮춘다.
+    maneuver_slow_rpm: 8
+    # 35 RPM 순항 시험용: 제동 예측시간과 최소 감속 창을 확대한다.
+    maneuver_decel_time_sec: 1.50
+    maneuver_arc_slowdown_min_deg: 12.0
+    maneuver_arc_slowdown_margin_deg: 2.0
+    maneuver_straight_slowdown_min_distance: 0.55
+    maneuver_straight_slowdown_margin: 0.10
+    sim_speed_forward: 0.08
+    sim_speed_reverse: -0.08
+    cmd_rate: 20.0
+    stop_hold_sec: 1.0
+    # 0.05 -> 0.10 (2026-08-12): real test on a slight slope showed a
+    # steady one-direction encoder creep around vx=0.081 with stop_mode=1
+    # (flat stop has no closed-loop hold, see rule_based_parallel_parking_
+    # node.py's settle_timeout_sec comment) - 0.10 clears that with margin
+    # so SETTLE advances promptly instead of always riding the timeout.
+    stop_speed_thresh: 0.10
+    # 2026-08-12: live testing showed vx-at-rest varying run to run
+    # (0.08/0.10/0.16 m/s with barely any real wheel motion, even near-flat
+    # ground) - not a consistent slope creep, more likely encoder noise.
+    # Chasing stop_speed_thresh to match it is a moving target, so this
+    # timeout is the real backstop: SETTLE always advances within 5s
+    # regardless of what vx is doing. See rule_based_parallel_parking_
+    # node.py's settle_timeout_sec comment.
+    settle_timeout_sec: 3.0
+
+    # 우측 슬롯 진입: ROS1 원본과 같은 첫 원호/복귀 원호 조향 부호
+    reverse_into_steer: 30
+    reverse_out_steer: -30
+    parallel_min_entry_yaw_deg: 8.0
+    # 이번 54.1도 진입에서 우측 후륜이 앞 경계에 근접했으므로 제한한다.
+    parallel_max_entry_yaw_deg: 45.0
+    parallel_plan_tolerance: 0.12
+    parallel_max_straight_reverse: 3.5
+    parallel_overshoot_tolerance: 0.30
+    parallel_min_steer_cmd: 10
+    parallel_steer_step_cmd: 1
+    reverse_out_yaw_tolerance_deg: 5.0
+    reverse_arc_timeout_sec: 60.0
+
+    approach_stop_ref: "front"
+    pre_straight_front_stop_x: 1.50
+    pre_straight_front_stop_tol: 0.10
+    approach_after_lock_max_dist: 4.0
+    pre_straight_stable_window: 5
+    pre_straight_required_hits: 8
+    pre_straight_min_travel_before_lock: 0.30
+    pre_straight_lock_front_max_x: 4.0
+    pre_straight_length_stable_tol: 0.20
+    pre_straight_width_stable_tol: 0.15
+    pre_straight_yaw_stable_tol_deg: 8.0
+    pre_straight_min_lateral_abs: 0.60
+    # 시작 IMU yaw를 목표로 유지하는 PI-D 직진 제어. steer=0의 기계적
+    # 편향은 적분항이 비영점 trim으로 학습한다.
+    pre_straight_use_imu: true
+    imu_topic: "/imu/data"
+    pre_straight_yaw_kp: 70.0
+    pre_straight_wz_kd: 8.0
+    pre_straight_yaw_ki: 30.0
+    pre_straight_i_limit: 5.0
+    pre_straight_steer_trim: 0.0
+    # IMU 오차가 커져도 멈추지 않고 max steer까지 계속 복귀 제어한다.
+    # 0 이하이면 헤딩 오차 정지 기능을 사용하지 않는다.
+    pre_straight_abort_yaw_deg: 0.0
+    pre_straight_steer_sign: 1
+    pre_straight_max_steer: 10
+    pre_straight_min_steer: 3
+    pre_straight_yaw_deadband_deg: 0.15
+
+    goal_tolerance: 0.12
+    lateral_tolerance: 0.08
+    longitudinal_tolerance: 0.12
+    final_yaw_tolerance_deg: 6.0
+    final_wz_tolerance: 0.12
+    # 17:01 실차 로그: 최초 다단 궤적 종료 시 s=-0.028 m였지만
+    # q=+0.231 m였다. 횡오차를 이유로 기존 FINAL_ALIGN이 0.85 m를
+    # 직선 후진해 rear_clear=0.106 m까지 밀어버렸다.
+    # 깊은 대각 후진 시작 직전 실제 odom으로 남은 궤적을 다시 풀고,
+    # 후반 원호/정지 중 누적된 +0.09 m 안쪽 오차도 선보정한다.
+    maneuver_lateral_execution_bias: 0.09
+    # 마지막 단계는 횡방향을 건드리지 않고 종방향만 자동 선택한다.
+    final_center_rpm: 5
+    final_center_max_distance: 0.30
+    final_center_lateral_tolerance: 0.10
+    final_align_max_steer: 6
+    final_align_yaw_kp: 60.0
+    # 호환용 파라미터이며 직선 종방향 보정에서는 사용하지 않는다.
+    final_align_lateral_kp: 12.0
+
+    # 주차 후 출차 및 웨이포인트 제어권 반환
+    # 첫 실차 검증은 false로 두고 /parking_exit_start를 수동 발행한다.
+    # 검증 후 launch의 auto_exit:=true로 자동 출차할 수 있다.
+    auto_exit: false
+    parking_hold_sec: 3.0
+    # 통합 주행: 직선 후진으로 앞쪽 여유만 만든 뒤 웨이포인트에 제어권 반환.
+    # false이면 기존 좌조향/반대조향 S자 완전 출차를 수행한다.
+    exit_reverse_only: true
+    exit_heading_tolerance_deg: 7.0
+    # 차량 전체가 슬롯 바깥 경계에서 이 거리만큼 빠져나와야 handoff한다.
+    exit_outer_clearance_margin: 0.05
+    # 역경로가 실제 정차 오차 때문에 위험하면 전용 S자 출차를 탐색한다.
+    # 먼저 슬롯 안에서 후진 여유를 만든 뒤 반대쪽 전진 원호 2개로 나온다.
+    exit_reverse_clear_max: 0.85
+    exit_reverse_clear_step: 0.025
+    exit_rear_end_margin: 0.18
+    exit_arc_min_deg: 35.0
+    exit_arc_max_deg: 75.0
+    exit_arc_step_deg: 1.0
+    # 주차 완료 헤딩 오차는 첫 저속 후진 중 작은 조향으로 먼저 보정한다.
+    exit_reverse_align_max_steer: 10
+    # collision_margin으로 팽창한 차체 기준으로 이 추가 여유를 우선한다.
+    exit_preferred_clearance: 0.14
+    # 첫 후진 실측 yaw 부족분을 마지막 복귀 원호에서 보정하는 최대 각도.
+    exit_feedback_max_adjust_deg: 5.0
+    # -8 RPM 정지 후 약 5cm 더 밀린 실측을 반영해 이만큼 일찍 제동한다.
+    exit_reverse_brake_buffer: 0.07
+
+    auto_start: false
+    direct_cmd_output: true
+    log_enable: true
+    log_root: "/home/a/.ros/parking_logs"
+
+scan_parking_filter:
+  ros__parameters:
+    input_scan: "/scan"
+    output_scan: "/scan_parking"
+    min_range: 0.25
+    max_range: 8.0
+    laser_yaw: 3.14159265
+    laser_yaw_extra: 0.0
+    laser_angle_sign: -1.0
+    # 우측(-90도)을 포함하되 전방 장애물도 볼 수 있는 차량 기준 각도창
+    keep_min_deg: -150.0
+    keep_max_deg: 120.0
+    publish_debug_frame: true
+    debug_period_sec: 2.0

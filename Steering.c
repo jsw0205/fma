@@ -22,9 +22,18 @@
 #define MAX_PWM_NEG_PERCENT 85.0f
 #define CONTROL_DT_SEC     0.005f
 
+#define POT_FILTER_SIZE  3U
+
 static IfxVadc_Adc g_vadc;
 static IfxVadc_Adc_Group g_adcGroup;
 static IfxVadc_Adc_Channel g_adcChannel;
+
+/* median-of-3 filter on the raw pot ADC sample: rejects single-sample
+ * spikes (ADC/electrical noise) without adding the lag a moving-average
+ * filter would, since only the outlier sample gets thrown out. */
+static uint32 g_potFilterBuffer[POT_FILTER_SIZE] =
+    {POT_CENTER, POT_CENTER, POT_CENTER};
+static uint8 g_potFilterIndex = 0U;
 
 static IfxGtm_Tom_Timer g_steerTimer;
 static uint32 g_steerPwmPeriodTicks = 0U;
@@ -203,6 +212,46 @@ static float32 calculatePwm(sint32 currentPot, sint32 targetPot)
     return pwm;
 }
 
+static uint32 medianOf3(uint32 a, uint32 b, uint32 c)
+{
+    uint32 maxVal = a;
+    uint32 minVal = a;
+
+    if (b > maxVal)
+    {
+        maxVal = b;
+    }
+    if (c > maxVal)
+    {
+        maxVal = c;
+    }
+
+    if (b < minVal)
+    {
+        minVal = b;
+    }
+    if (c < minVal)
+    {
+        minVal = c;
+    }
+
+    return (a + b + c) - maxVal - minVal;
+}
+
+static uint32 filterPotValue(uint32 rawPot)
+{
+    g_potFilterBuffer[g_potFilterIndex] = rawPot;
+    g_potFilterIndex++;
+    if (g_potFilterIndex >= POT_FILTER_SIZE)
+    {
+        g_potFilterIndex = 0U;
+    }
+
+    return medianOf3(g_potFilterBuffer[0],
+                     g_potFilterBuffer[1],
+                     g_potFilterBuffer[2]);
+}
+
 static void setMotorPercent(sint32 percent)
 {
     uint32 triggerPoint;
@@ -271,8 +320,8 @@ void Steering_Update_5ms(void)
         result = IfxVadc_Adc_getResult(&g_adcChannel);
     } while (result.B.VF == 0U);
 
-    currentPot = (sint32)result.B.RESULT;
-    g_steeringPotValue = (uint32)result.B.RESULT;
+    g_steeringPotValue = filterPotValue((uint32)result.B.RESULT);
+    currentPot = (sint32)g_steeringPotValue;
 
     if (currentPot < POT_RIGHT)
     {

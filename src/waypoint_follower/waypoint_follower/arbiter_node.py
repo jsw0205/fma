@@ -365,6 +365,19 @@ class ArbiterNode(Node):
         self.declare_parameter("control_rate_hz", 20.0)
         self.declare_parameter("can_channel", "can0")
         self.declare_parameter("steer_limit_deg", can_driver.TRUE_STEER_MAX_ANGLE_DEG)
+        # base_steer EMA lowpass (2026-08-17): smooths camera/gps_fallback's
+        # per-tick steer before it reaches CAN, filtered = alpha*current +
+        # (1-alpha)*previous. 1.0 = filtering off (bit-identical to pre-this-
+        # change behavior) - opt-in via launch config, doesn't change
+        # anything until tuned down. Lower alpha = heavier smoothing but more
+        # lag; at 20Hz, alpha=0.3 has roughly a ~0.2s time constant. Only
+        # applied to base_steer (normal camera/gps_fallback driving, incl.
+        # while a traffic_light zone or a "still GPS-driving-through, not
+        # yet engaged" parking zone reuses it) - NOT to avoid/parking-engaged/
+        # event-stop's own raw steer, which come from dedicated maneuver
+        # logic that needs to track its own commanded value exactly.
+        self.declare_parameter("base_steer_lowpass_alpha", 1.0)
+        self._filtered_base_steer = None
 
         zone_specs = [s for s in self.get_parameter("event_zones").value if s]
         self.event_zones = parse_event_zones(zone_specs)
@@ -625,6 +638,19 @@ class ArbiterNode(Node):
         age = (self.get_clock().now() - last_time).nanoseconds / 1e9
         return age <= timeout_sec
 
+    def _traffic_light_is_red(self):
+        """Shared by the 'traffic_light' zone (which also has a stopline)
+        and 'gps_priority'/'gps_priority_slow' (which don't - see their
+        own branches). Fails safe to RED if traffic_light_node isn't
+        running/publishing, same reasoning in both cases: better to
+        crawl/stop through an unconfigured intersection than guess GO and
+        drive through blind."""
+        light_fresh = self._fresh(
+            self.traffic_light_last_time,
+            self.get_parameter("traffic_light_timeout_sec").value,
+        )
+        return (not light_fresh) or (self.traffic_light_state == "STOP")
+
     def _zone_at(self, idx):
         for start, end, kind, extra in self.event_zones:
             if start <= idx <= end:
@@ -874,6 +900,24 @@ class ArbiterNode(Node):
         else:
             base_steer, base_rpm, base_source = 0.0, 0.0, None
 
+        # base_steer EMA lowpass - see base_steer_lowpass_alpha's declaration
+        # comment above. Snaps (no blend-in lag) the first tick a source
+        # becomes valid, and resets to None whenever base_source goes back
+        # to None (both camera and gps invalid) so a later re-entry starts
+        # fresh instead of blending from a steer value that's now stale by
+        # however long the vehicle was in safe_stop/an event zone.
+        if base_source is None:
+            self._filtered_base_steer = None
+        else:
+            alpha = self.get_parameter("base_steer_lowpass_alpha").value
+            if self._filtered_base_steer is None:
+                self._filtered_base_steer = base_steer
+            else:
+                self._filtered_base_steer = (
+                    alpha * base_steer + (1.0 - alpha) * self._filtered_base_steer
+                )
+            base_steer = self._filtered_base_steer
+
         # Pre-zone smooth deceleration into a parking zone (2026-08-07) -
         # see _parking_ramped_rpm() and parking_{side}_ramp_idx_margin's
         # declaration comment for why. Applied to base_rpm here so the
@@ -905,24 +949,48 @@ class ArbiterNode(Node):
                 0.0, 0.0, 0, 1, "event_zone_stop", f"event_zone(stop, idx={self.gps_idx})"
             )
         elif zone == "gps_priority" and gps_ok:
-            self._send_true_deg(
-                self.gps_steer, self._parking_ramped_rpm(self.gps_rpm), 1, 0,
-                "event_zone_gps_priority",
-                f"event_zone(gps_priority, idx={self.gps_idx})",
-            )
+            # 2026-08-16: gps_priority excludes the ZED lane-following
+            # camera (so slot detection right before a parking search
+            # isn't fighting the camera for steering) - but that's a
+            # completely separate pipeline from the OAK-D traffic_light
+            # camera, which keeps running/detecting regardless. This zone
+            # used to never check traffic_light_state at all, so a red
+            # light sitting inside a gps_priority stretch (e.g. right
+            # before a parking zone) was silently ignored. No stopline
+            # concept here (unlike "traffic_light" zones), so red just
+            # means a full stop for as long as it's red, not a graceful
+            # approach-and-stop-at-line.
+            if self._traffic_light_is_red():
+                self._send_true_deg(
+                    self.gps_steer, 0.0, 0, 1, "event_zone_gps_priority_red",
+                    f"event_zone(gps_priority, idx={self.gps_idx}) RED - stopped",
+                )
+            else:
+                self._send_true_deg(
+                    self.gps_steer, self._parking_ramped_rpm(self.gps_rpm), 1, 0,
+                    "event_zone_gps_priority",
+                    f"event_zone(gps_priority, idx={self.gps_idx})",
+                )
         elif zone == "gps_priority_slow" and gps_ok:
             # Same as gps_priority (camera excluded, GPS drives) but capped
             # at gps_priority_slow_rpm instead of full cruise - for transit
-            # stretches between two parking zones.
+            # stretches between two parking zones. Same red-light gap fix
+            # as gps_priority above.
             slow_rpm = min(
                 self._parking_ramped_rpm(self.gps_rpm),
                 self.get_parameter("gps_priority_slow_rpm").value,
             )
-            self._send_true_deg(
-                self.gps_steer, slow_rpm, 1, 0,
-                "event_zone_gps_priority_slow",
-                f"event_zone(gps_priority_slow, idx={self.gps_idx})",
-            )
+            if self._traffic_light_is_red():
+                self._send_true_deg(
+                    self.gps_steer, 0.0, 0, 1, "event_zone_gps_priority_slow_red",
+                    f"event_zone(gps_priority_slow, idx={self.gps_idx}) RED - stopped",
+                )
+            else:
+                self._send_true_deg(
+                    self.gps_steer, slow_rpm, 1, 0,
+                    "event_zone_gps_priority_slow",
+                    f"event_zone(gps_priority_slow, idx={self.gps_idx})",
+                )
         elif zone == "avoid" and avoid_ok and self.avoid_state == "CLEAR" and gps_ok:
             # In the zone, obstacle_avoid_node is scanning but hasn't found
             # anything yet - drive normally via GPS (keeps the curvature-
@@ -973,17 +1041,7 @@ class ArbiterNode(Node):
                 f"event_zone(avoid-stop, idx={self.gps_idx}, state={self.avoid_state}, avoid_ok={avoid_ok})",
             )
         elif zone == "traffic_light":
-            light_fresh = self._fresh(
-                self.traffic_light_last_time,
-                self.get_parameter("traffic_light_timeout_sec").value,
-            )
-            # Fail-safe: if the traffic_light node isn't running/publishing,
-            # treat it as RED rather than guessing GO and driving through an
-            # intersection blind. Means an unconfigured/dead traffic_light
-            # node makes the vehicle crawl+stop through every configured
-            # zone - intentional, flag if that's too conservative for
-            # testing without the OAK-D connected.
-            is_red = (not light_fresh) or (self.traffic_light_state == "STOP")
+            is_red = self._traffic_light_is_red()
             # zone_stopline, NOT zone_end - see parse_event_zones' docstring.
             # Using zone_end here was a real bug: the instant gps_idx ticked
             # past it, this whole zone stopped matching in _zone_at() (zone

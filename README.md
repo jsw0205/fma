@@ -1891,3 +1891,57 @@ re-verified against a fresh full run yet.
   around via `SETTLE`'s timeout. If it turns out to matter somewhere other
   than `SETTLE` (anywhere else that gates on `abs(vx) < threshold`), the
   same timeout-backstop pattern may need to be applied there too.
+
+## 2026-08-17 session: CAN 진단 프로토콜(0x104/0x203) 설계, `arbiter_node.py` `base_steer` 로우패스 필터 추가
+
+- **CAN 진단 프로토콜 신규 설계** (`can_driver.py`, `arbiter_node.py`, `README_CAN_PROTOCOL.md`,
+  `henes_can.dbc`): `0x203 CONTROL_META`(TX, 로깅/CANoe 가시성 전용, 실제 제어엔 안 쓰임 -
+  `0x200`과 같은 틱에 rpm/steer/stop_mode 미러링 + `controller_id`/`seq` 추가)와
+  `0x104 DIAG_STATUS`(RX, 펌웨어 실측 - `applied_stop_mode`/`fault_flags`/`steer_pwm_duty`/
+  `supply_voltage_mV`/`rx_seq_echo`). 설계 당시엔 펌웨어 미구현이었으나, 8/16 저녁 CANoe
+  로그(`Logging_2.asc`) 확인 결과 팀원이 이미 구현해서 실제로 송신 중임을 확인함
+  (`can_driver.py`의 "NOT YET SENT BY FIRMWARE" 주석은 갱신 필요, 아직 안 함).
+  8/16 로그 분석 중 발견한 것들:
+  - `supply_voltage_mV`가 17623개 프레임 전부 0 - 미배선/스텁 의심, 펌웨어팀 확인 필요
+  - `rx_seq_echo` 라운드트립 0건 이상 없음 - seq echo 메커니즘 정상 동작 확인
+  - `applied_stop_mode`가 대부분 1(flat)/2(hold)이고 0(disabled)은 거의 안 잡힘 - 요청
+    (`0x200.stop_mode`)은 계속 0(normal)이었는데, 의미가 다르다는 건 알지만(README 참고)
+    한 번 팀원 확인 필요
+
+- **8/16 22:23 실주행 로그 분석** (`arbiter_can_20260816_222302.csv` +
+  `drive_log_20260816_222303.csv`, `Logging_2.asc`와 시간대 겹침 확인:
+  CAN 로그 절대시간 22:23:27~22:24:55 = ROS 로그 t=25.1~113.2s, 두 로그가 카메라→
+  GPS_FALLBACK 전환 시점에서 서로 일치함):
+  - **카메라 주행 중 rpm이 항상 130.0 고정, 분산 0** (커브에서 최대 -14.3°까지 꺾여도
+    안 바뀜) - `yolopv2_zed_rpm_node.py` 자체엔 커브 감속 로직(`_speed_for_steer`,
+    `auto_speed`/`steer_deadzone_deg=2.0`/`steer_full_deg=18.0`(30°-스케일 기준,
+    물리각 환산 시 약 8.58°)/`rpm_turn_scale=0.8`)이 있지만, 이 런에서
+    `can_enable=false`였어서 그 블록 자체가 실행 안 됐고(카메라는 steer 토픽만 publish),
+    실제 CAN을 쏘는 `arbiter_node.py`가 카메라 주행 시 `base_rpm`을 자기 파라미터
+    `camera_mode_rpm` 고정값으로만 쓰기 때문 - 카메라의 곡률 계산 결과 자체가 rpm에는
+    전혀 반영 안 되는 구조. 필요하면 이거 arbiter에서 걸 수 있음 (현재는 보류).
+  - `yolopv2_zed_rpm_node` 프로세스가 시작 302.0초 후 **`exit code -6`(SIGABRT)로 크래시**
+    (`~/.ros/log/2026-08-16-22-23-02-*/launch.log`) - drive_log 마지막 t_s(300.96s)와
+    거의 일치. "로그를 한참 뒤에 껐다"가 아니라 크래시로 끝난 것. 원인 미조사.
+  - GPS `cruise_rpm=140`/`min_curve_rpm=50` 커브 기반 감속 확인 (`_curvature_scaled_rpm`) -
+    직선 구간에서 135~140대 찍히는 게 정상 동작.
+  - `camera_ok` 판정 3조건 정리: ① `camera_active`(lane_valid 프레임 히스테리시스,
+    `camera_bad_frames_to_disable=10`/`camera_good_frames_to_enable=3`, 순수 프레임
+    카운트로 시간 무관 - 실측 20Hz 설계 대비 어제 실제 13~15fps로 밀림, 10프레임이면
+    설계상 500ms인데 실측 기준 670~770ms), ② freshness dead-man's switch
+    (`camera_timeout_sec=1.0s`), ③ GPS cross-track veto(`camera_max_deviation_m=2.5m`
+    넘으면 강제 스왑, 재진입은 `camera_deviation_reenter_m=2.5m` 안으로
+    `camera_deviation_reenter_streak=20`틱 연속 필요, `camera_deviation_lockout_count=3`번
+    /`camera_deviation_lockout_window_sec=20s` 안에 반복 트립되면
+    `camera_deviation_lockout_sec=15s` 강제 락아웃 - 이땐 차선 바로 보여도 안 풀림).
+
+- **`arbiter_node.py`에 `base_steer` EMA 로우패스 필터 추가** (신규 파라미터
+  `base_steer_lowpass_alpha`, 기본값 `1.0` = 필터 끔, 기존 동작과 100% 동일 - opt-in):
+  `filtered = alpha*현재값 + (1-alpha)*이전값`. `base_steer`(평상시 카메라/gps_fallback
+  주행값 - traffic_light 구간, 아직 안 맞물린 상태로 GPS가 주차존 그냥 통과하는 구간에서도
+  재사용됨)가 계산되는 딱 한 지점에 적용해서 하위 소비처 전부에 자동 반영되게 함. 소스가
+  camera<->gps_fallback로 전환될 때도 그대로 블렌딩됨(의도된 동작 - 전환 시 튀는 것도
+  같이 완화하려는 목적). `base_source`가 `None`(카메라·GPS 둘 다 무효)이 되면 필터 상태
+  리셋 - safe_stop/이벤트존 통과 후 재진입 시 오래된 값에서 블렌딩 시작하는 걸 방지.
+  avoid/parking-engaged/event-stop 등 자체 정밀 조향 로직을 쓰는 구간은 이 필터 영향 안 받음
+  (그쪽은 각자 이미 별도로 값 관리함). 아직 실차 테스트 안 됨 - alpha 튜닝값 미정.

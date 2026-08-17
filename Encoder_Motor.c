@@ -151,14 +151,6 @@ static void updateEncoderPollPins(void)
         (IfxPort_getPinState(&ENCODER_B_PORT, ENCODER_B_PIN) != FALSE) ? 1U : 0U;
 }
 
-/* This chassis has encoder A/B wired opposite to the reference unit
- * (누렁이), so the quadrature transition table's direction sign is
- * flipped here to match. HOLD mode derives the drive direction pin
- * directly from this sign (unlike RUN mode, which drives from the
- * commanded direction and only used delta magnitude for speed
- * regulation) -- with the un-flipped table, HOLD was pushing harder
- * in whatever direction the vehicle was already drifting, saturating
- * PWM to +/-100% every correction instead of damping it out. */
 static sint8 decodeDirection(uint8 previousState, uint8 currentState)
 {
     uint8 transition =
@@ -170,13 +162,13 @@ static sint8 decodeDirection(uint8 previousState, uint8 currentState)
     case 0x7U:
     case 0xEU:
     case 0x8U:
-        return 1;
+        return -1;
 
     case 0x2U:
     case 0xBU:
     case 0xDU:
     case 0x4U:
-        return -1;
+        return 1;
 
     default:
         return 0;

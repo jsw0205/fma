@@ -1945,3 +1945,15 @@ re-verified against a fresh full run yet.
   리셋 - safe_stop/이벤트존 통과 후 재진입 시 오래된 값에서 블렌딩 시작하는 걸 방지.
   avoid/parking-engaged/event-stop 등 자체 정밀 조향 로직을 쓰는 구간은 이 필터 영향 안 받음
   (그쪽은 각자 이미 별도로 값 관리함). 아직 실차 테스트 안 됨 - alpha 튜닝값 미정.
+
+## 2026-08-17 (이어서): GPS 커브 감속에 데드존 추가 (`curve_deadzone_angle_deg`)
+
+교수님 피드백: 각도(커브 곡률) 따라 속도 줄이는 로직에 "특정 각도 이내면
+그냥 최대 속도, 그 이후 선형적으로 내리다 최소값 되면 유지"하는 형태로
+만들라는 지시. 기존 `_curvature_scaled_rpm()`은 `turn_angle > 0`이면 바로
+선형 감속이 시작되는 구조였음(데드존 없음) - `curve_deadzone_angle_deg`
+파라미터(기본값 **5.0**, 사용자 판단 근거로 채택) 추가해서
+`0~5° -> cruise_rpm(140, 평평) -> 선형 감속 -> curve_angle_for_min_rpm_deg
+(40°) 이상 -> min_curve_rpm(50, 평평)` 구조로 수정. 기존 대비: `frac`
+계산식이 `turn_angle / max_angle`에서 `(turn_angle - deadzone) /
+(max_angle - deadzone)`로 바뀜. 실차 테스트 아직 안 함.

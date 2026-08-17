@@ -87,6 +87,15 @@ class WaypointFollowerNode(Node):
         self.declare_parameter("stanley_v_min", 0.5)
         self.declare_parameter("cruise_rpm", 140)
         self.declare_parameter("min_curve_rpm", 50)
+        # Below this lookahead-turn-angle, hold cruise_rpm (max speed) - no
+        # point easing off for a curve too gentle to actually need it.
+        # Above curve_angle_for_min_rpm_deg, hold min_curve_rpm (already
+        # true via _curvature_scaled_rpm's frac clamp, unaffected by this
+        # param). Between the two: linear ramp. 5.0 default per the
+        # professor's guidance (2026-08-17) - previously 0.0 (ramp started
+        # immediately off any nonzero angle, no flat "max speed" region at
+        # all).
+        self.declare_parameter("curve_deadzone_angle_deg", 5.0)
         self.declare_parameter("curve_angle_for_min_rpm_deg", 40.0)
         self.declare_parameter("curve_lookahead_m", 6.0)
         self.declare_parameter("curve_lead_margin", 1.5)
@@ -301,18 +310,25 @@ class WaypointFollowerNode(Node):
         return self._filtered_steer_deg
 
     def _curvature_scaled_rpm(self, idx):
+        """|angle| <= curve_deadzone_angle_deg -> cruise_rpm (max, flat).
+        |angle| >= curve_angle_for_min_rpm_deg -> min_curve_rpm (min, flat,
+        via frac's clamp to 1.0). Between the two: linear ramp down. See
+        curve_deadzone_angle_deg's declaration comment."""
         cruise_rpm = self.get_parameter("cruise_rpm").value
         min_rpm = self.get_parameter("min_curve_rpm").value
+        deadzone_deg = self.get_parameter("curve_deadzone_angle_deg").value
         max_angle = self.get_parameter("curve_angle_for_min_rpm_deg").value
         lookahead_m = self.get_parameter("curve_lookahead_m").value
 
         wx, wy = zip(*self.waypoints_enu)
         curve = lookahead_path_curve(wx, wy, idx, lookahead_m)
-        if curve is None or max_angle <= 0:
+        if curve is None or max_angle <= deadzone_deg:
             return cruise_rpm
 
         turn_angle, _, _ = curve
-        frac = clamp(turn_angle / max_angle, 0.0, 1.0)
+        frac = clamp(
+            (turn_angle - deadzone_deg) / (max_angle - deadzone_deg), 0.0, 1.0
+        )
         return cruise_rpm - frac * (cruise_rpm - min_rpm)
 
     def _turning_radius_m(self):

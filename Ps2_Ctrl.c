@@ -23,6 +23,9 @@ static boolean g_circleWasPressed = FALSE;
 static boolean g_crossWasPressed = FALSE;
 static boolean g_squareWasPressed = FALSE;
 static boolean g_l2WasPressed = FALSE;
+static boolean g_l1WasPressed = FALSE;
+static boolean g_r1WasPressed = FALSE;
+static boolean g_r2WasPressed = FALSE;
 static uint8 g_startStableCnt = 0U;
 static uint8 g_selectStableCnt = 0U;
 
@@ -72,6 +75,12 @@ static void updateDriveCommand(void)
         ((g_btnHi & (1U << 7U)) == 0U);
     boolean l2Pressed =
         ((g_btnHi & (1U << 0U)) == 0U);
+    boolean r2Pressed =
+        ((g_btnHi & (1U << 1U)) == 0U);
+    boolean l1Pressed =
+        ((g_btnHi & (1U << 2U)) == 0U);
+    boolean r1Pressed =
+        ((g_btnHi & (1U << 3U)) == 0U);
     boolean selectPressed =
         ((g_btnLo & (1U << 0U)) == 0U);
     boolean startPressed =
@@ -155,7 +164,10 @@ static void updateDriveCommand(void)
         g_ps2FlatStopMode = TRUE;
     }
 
-    if ((l2Pressed != FALSE) && (g_l2WasPressed == FALSE))
+    if (((l2Pressed != FALSE) && (g_l2WasPressed == FALSE)) ||
+        ((l1Pressed != FALSE) && (g_l1WasPressed == FALSE)) ||
+        ((r1Pressed != FALSE) && (g_r1WasPressed == FALSE)) ||
+        ((r2Pressed != FALSE) && (g_r2WasPressed == FALSE)))
     {
         g_ps2TargetRpm = 0U;
         g_ps2FlatStopMode = FALSE;
@@ -169,6 +181,9 @@ static void updateDriveCommand(void)
     g_crossWasPressed = crossPressed;
     g_squareWasPressed = squarePressed;
     g_l2WasPressed = l2Pressed;
+    g_l1WasPressed = l1Pressed;
+    g_r1WasPressed = r1Pressed;
+    g_r2WasPressed = r2Pressed;
 
     g_targetRpm = (float32)g_ps2TargetRpm;
 }
@@ -207,6 +222,9 @@ void Ps2_Ctrl_Update_5ms(void)
         g_crossWasPressed = FALSE;
         g_squareWasPressed = FALSE;
         g_l2WasPressed = FALSE;
+        g_l1WasPressed = FALSE;
+        g_r1WasPressed = FALSE;
+        g_r2WasPressed = FALSE;
         g_startStableCnt = 0U;
         g_selectStableCnt = 0U;
         g_ps2Connected = FALSE;

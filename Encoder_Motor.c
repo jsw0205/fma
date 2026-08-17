@@ -33,7 +33,6 @@
 #define DRIVE_RUN_DELTA_DEADBAND_COUNT 0
 #define DRIVE_HOLD_DELTA_DEADBAND_COUNT  0
 #define DRIVE_HOLD_ADAPT_STEP_PERCENT    0.5f
-#define DRIVE_HOLD_DECEL_STEP_PERCENT    4.0f
 #define DRIVE_HOLD_ADAPT_MAX_PERCENT     100.0f
 #define DRIVE_STOP_BRAKE_PWM_PERCENT  15.0f
 #define DRIVE_STOP_BRAKE_STEPS        1U
@@ -417,9 +416,9 @@ static void updateRpmMotor(void)
     {
         if ((g_previousTargetRpm > 0.0f) && (g_targetRpm <= 0.0f))
         {
-            g_posHoldActive = FALSE;
+            g_posHoldActive = (g_stopHoldEnable != FALSE) ? TRUE : FALSE;
             g_stopState = (g_stopHoldEnable != FALSE) ?
-                          DRIVE_STOP_STATE_BRAKE : DRIVE_STOP_STATE_NONE;
+                          DRIVE_STOP_STATE_HOLD : DRIVE_STOP_STATE_NONE;
             g_stopStepCount = 0U;
             g_posHoldCount = g_encoderCount;
             g_driveHoldPwmPercent = (g_stopHoldEnable != FALSE) ?
@@ -538,45 +537,26 @@ static void updateRpmMotor(void)
 
         if (g_stopState == DRIVE_STOP_STATE_BRAKE)
         {
-            /* Ramp the PWM that was driving us down to 0 without ever
-             * crossing zero (no direction flip mid-decel) -- this is
-             * the "coast down smoothly" phase requested for hill-stop
-             * while moving, instead of jumping straight into the
-             * hold corrector at full driving power. */
-            if (g_driveHoldPwmPercent > DRIVE_HOLD_DECEL_STEP_PERCENT)
-            {
-                g_driveHoldPwmPercent -= DRIVE_HOLD_DECEL_STEP_PERCENT;
-            }
-            else if (g_driveHoldPwmPercent < -DRIVE_HOLD_DECEL_STEP_PERCENT)
-            {
-                g_driveHoldPwmPercent += DRIVE_HOLD_DECEL_STEP_PERCENT;
-            }
-            else
-            {
-                g_driveHoldPwmPercent = 0.0f;
-            }
+            g_stopStepCount++;
+            g_driveTargetPwmPercent = g_driveStopBrakePwmPercent;
 
-            if (g_driveHoldPwmPercent >= 0.0f)
-            {
-                IfxPort_setPinHigh(&DRIVE_DIR_PORT, DRIVE_DIR_PIN);
-                g_driveReverseActive = FALSE;
-            }
-            else
+            if (g_stopBrakeReverse != FALSE)
             {
                 IfxPort_setPinLow(&DRIVE_DIR_PORT, DRIVE_DIR_PIN);
                 g_driveReverseActive = TRUE;
             }
-
-            g_driveTargetPwmPercent = absoluteFloat(g_driveHoldPwmPercent);
-            setDrivePwmPercent(g_driveTargetPwmPercent);
-
-            if (g_driveHoldPwmPercent == 0.0f)
+            else
             {
-                g_stopState = DRIVE_STOP_STATE_HOLD;
-                g_posHoldActive = TRUE;
-                g_posHoldCount = g_encoderCount;
-                g_driveHoldPosError = 0;
-                g_driveHoldDirection = 0;
+                IfxPort_setPinHigh(&DRIVE_DIR_PORT, DRIVE_DIR_PIN);
+                g_driveReverseActive = FALSE;
+            }
+
+            setDrivePwmPercent(g_driveStopBrakePwmPercent);
+
+            if (g_stopStepCount >= DRIVE_STOP_BRAKE_STEPS)
+            {
+                g_stopState = DRIVE_STOP_STATE_SETTLE;
+                g_stopStepCount = 0U;
             }
 
             return;

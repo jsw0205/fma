@@ -1054,10 +1054,15 @@ class ArbiterNode(Node):
                         self._stop_hold_done = True
 
                 if not self._stop_hold_done:
+                    # enable=1 here (not 0) - 2026-08-18, testing the
+                    # user's hypothesis that hill-hold needs the motor
+                    # actively engaged (torque applied against gravity,
+                    # target rpm=0) rather than fully disabled/freewheeling.
+                    # rpm=0.0 still means "hold position", not "off".
                     self._send_true_deg(
-                        0.0, 0.0, 0, 2, "event_zone_stop_timed",
+                        0.0, 0.0, 1, 2, "event_zone_stop_timed",
                         f"event_zone(stop, idx={self.gps_idx}) holding "
-                        f"{elapsed:.1f}/{hold_sec:.1f}s (stop_mode=2/hill)",
+                        f"{elapsed:.1f}/{hold_sec:.1f}s (enable=1, stop_mode=2/hill)",
                     )
                 elif base_source is not None:
                     # Hold's over - resume normal driving even though idx

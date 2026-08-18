@@ -17,6 +17,15 @@ def generate_launch_description():
         "weights", default_value="/home/a/ros2_ws/src/zed_camera/weights/yolopv2.pt"
     )
     camera_mode_rpm_arg = DeclareLaunchArgument("camera_mode_rpm", default_value="130.0")
+    # int-formatted (no decimal point) on purpose - yolopv2_zed_rpm_node.py
+    # declares can_target_rpm with an int default (0), so casting the
+    # LaunchConfiguration string via ParameterValue(value_type=int) needs a
+    # string int() can actually parse ("130", not "130.0" - int("130.0")
+    # raises). Kept as a separate arg from camera_mode_rpm (which IS
+    # "130.0", float-typed for arbiter's own camera_mode_rpm param) rather
+    # than reusing it, to avoid that trap. Should track the same intended
+    # cruise value as camera_mode_rpm if that's ever tuned.
+    camera_can_target_rpm_arg = DeclareLaunchArgument("camera_can_target_rpm", default_value="130")
     cruise_rpm_arg = DeclareLaunchArgument("cruise_rpm", default_value="140")
     traffic_light_model_arg = DeclareLaunchArgument(
         "traffic_light_model",
@@ -75,6 +84,14 @@ def generate_launch_description():
     # arbiter is the only thing that talks to CAN. Publishes
     # ~/steering_deg (-> /yolopv2_zed_node/steering_deg), which is what
     # control_arbiter's camera_steer_topic already points at by default.
+    # auto_speed/can_target_rpm (2026-08-17): rpm_target computation runs
+    # unconditionally now regardless of can_enable (see
+    # yolopv2_zed_rpm_node.py's publish-timer comment) and is published on
+    # ~/rpm_target for control_arbiter's camera_rpm_topic to consume -
+    # can_target_rpm needs a real base (default is 0, which would make
+    # _speed_for_steer always return 0) so it's set to match
+    # camera_mode_rpm here, same "straight" cruise value either arbiter
+    # falls back to.
     camera_node = Node(
         package="zed_camera",
         executable="yolopv2_zed_rpm_node",  # newer LaneTracker-based version
@@ -83,6 +100,10 @@ def generate_launch_description():
         parameters=[{
             "can_enable": False,
             "weights": LaunchConfiguration("weights"),
+            "auto_speed": True,
+            "can_target_rpm": ParameterValue(
+                LaunchConfiguration("camera_can_target_rpm"), value_type=int
+            ),
         }],
     )
 
@@ -156,6 +177,7 @@ def generate_launch_description():
         enable_control_arg,
         weights_arg,
         camera_mode_rpm_arg,
+        camera_can_target_rpm_arg,
         cruise_rpm_arg,
         traffic_light_model_arg,
         f9p_bringup_launch,

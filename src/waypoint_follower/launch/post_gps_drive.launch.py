@@ -36,6 +36,9 @@ def generate_launch_description():
         "weights", default_value="/home/a/ros2_ws/src/zed_camera/weights/yolopv2.pt"
     )
     camera_mode_rpm_arg = DeclareLaunchArgument("camera_mode_rpm", default_value="130.0")
+    # int-formatted on purpose - see integrated_drive.launch.py's matching
+    # comment (int("130.0") would raise, can_target_rpm is int-typed).
+    camera_can_target_rpm_arg = DeclareLaunchArgument("camera_can_target_rpm", default_value="130")
     cruise_rpm_arg = DeclareLaunchArgument("cruise_rpm", default_value="140")
     traffic_light_model_arg = DeclareLaunchArgument(
         "traffic_light_model",
@@ -128,7 +131,10 @@ def generate_launch_description():
     )
 
     # Camera node (yolopv2_zed_node): can_enable MUST stay false - the
-    # arbiter is the only thing that talks to CAN.
+    # arbiter is the only thing that talks to CAN. auto_speed/
+    # can_target_rpm (2026-08-17): see integrated_drive.launch.py's
+    # matching comment - rpm_target now published on ~/rpm_target
+    # regardless of can_enable, for control_arbiter's camera_rpm_topic.
     camera_node = Node(
         package="zed_camera",
         executable="yolopv2_zed_rpm_node",
@@ -137,6 +143,10 @@ def generate_launch_description():
         parameters=[{
             "can_enable": False,
             "weights": LaunchConfiguration("weights"),
+            "auto_speed": True,
+            "can_target_rpm": ParameterValue(
+                LaunchConfiguration("camera_can_target_rpm"), value_type=int
+            ),
         }],
     )
 
@@ -290,6 +300,7 @@ def generate_launch_description():
         loop_waypoints_arg,
         weights_arg,
         camera_mode_rpm_arg,
+        camera_can_target_rpm_arg,
         cruise_rpm_arg,
         traffic_light_model_arg,
         traffic_light_show_debug_arg,

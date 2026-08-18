@@ -239,7 +239,15 @@ class ArbiterNode(Node):
         self.declare_parameter("camera_deviation_lockout_count", 3)
         self.declare_parameter("camera_deviation_lockout_window_sec", 20.0)
         self.declare_parameter("camera_deviation_lockout_sec", 15.0)
+        # camera_mode_rpm: fallback/seed value only as of 2026-08-17 - real
+        # camera-driving rpm now comes from camera_rpm_topic (the camera
+        # node's own curve-scaled _speed_for_steer() output, published on
+        # ~/rpm_target regardless of its can_enable setting). Used to seed
+        # self.camera_rpm before the first message arrives, so an early
+        # camera-driven tick doesn't command 0 rpm just because nothing's
+        # been received yet.
         self.declare_parameter("camera_mode_rpm", 100.0)
+        self.declare_parameter("camera_rpm_topic", "/yolopv2_zed_node/rpm_target")
         self.declare_parameter("gps_timeout_sec", 1.0)
         # obstacle_avoidance package (obstacle_avoid_node): only armed
         # while the GPS idx is inside an "avoid" event zone, via
@@ -385,6 +393,11 @@ class ArbiterNode(Node):
             self.get_logger().info(f"event zones: {self.event_zones}")
 
         self.camera_steer = float("nan")
+        # Seeded from camera_mode_rpm (not 0.0/nan) so an early camera-
+        # driven tick, before the first ~/rpm_target message arrives,
+        # doesn't command a dead stop - see camera_rpm_topic's declaration
+        # comment above.
+        self.camera_rpm = self.get_parameter("camera_mode_rpm").value
         self.camera_last_time = None
         # Starts inactive - has to earn a good streak before ever being
         # trusted, rather than defaulting to "on" before any frame arrives.
@@ -506,6 +519,9 @@ class ArbiterNode(Node):
             Float32, self.get_parameter("camera_steer_topic").value, self._on_camera_steer, 10
         )
         self.create_subscription(
+            Float32, self.get_parameter("camera_rpm_topic").value, self._on_camera_rpm, 10
+        )
+        self.create_subscription(
             Bool, self.get_parameter("camera_lane_valid_topic").value,
             self._on_camera_lane_valid, 10,
         )
@@ -578,6 +594,14 @@ class ArbiterNode(Node):
         # camera_lane_valid_topic declaration above.
         self.camera_steer = msg.data
         self.camera_last_time = self.get_clock().now()
+
+    def _on_camera_rpm(self, msg):
+        # No separate freshness tracking - trusted only via camera_ok's
+        # existing gate (camera_active + camera_last_time freshness, keyed
+        # off the steer topic), same as camera_steer above. Already
+        # curve-scaled + step-rate-limited by the camera node itself
+        # (_speed_for_steer + rpm_step), so this is used as-is.
+        self.camera_rpm = msg.data
 
     def _on_camera_lane_valid(self, msg):
         if msg.data:
@@ -891,7 +915,12 @@ class ArbiterNode(Node):
         # stop/gps_priority/avoid do.
         if camera_ok:
             base_steer = self.camera_steer
-            base_rpm = self.get_parameter("camera_mode_rpm").value
+            # 2026-08-17: was a fixed camera_mode_rpm parameter (curvature-
+            # blind - same rpm whether the camera was driving straight or
+            # at full steering lock). Now the camera's own curve-scaled
+            # rpm (see camera_rpm_topic's declaration comment + camera_ok's
+            # freshness gate above, which already covers this topic too).
+            base_rpm = self.camera_rpm
             base_source = "camera"
         elif gps_ok:
             base_steer = self.gps_steer

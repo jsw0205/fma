@@ -734,6 +734,13 @@ class YoloPv2ZedNode(Node):
         self.pub_steer = self.create_publisher(Float32, "~/steering_deg", 10)
         self.pub_speed = self.create_publisher(Float32, "~/speed_mps",    10)
         self.pub_rpm   = self.create_publisher(Float32, "~/motor_rpm",    10)
+        # rpm_target: the curve-scaled command from _speed_for_steer() -
+        # NOT the same as pub_rpm above (motor_rpm is a speed-feedback
+        # estimate from odometry, not a command). Published unconditionally
+        # (2026-08-17) regardless of can_enable so control_arbiter can
+        # subscribe to this instead of using a fixed camera_mode_rpm
+        # parameter - see arbiter_node.py's camera_rpm_topic.
+        self.pub_rpm_target = self.create_publisher(Float32, "~/rpm_target", 10)
         self.pub_lane_valid = self.create_publisher(Bool, "~/lane_valid", 10)
         self.speed_mps = float('nan')
         self.steering_deg = float('nan')
@@ -1219,28 +1226,40 @@ class YoloPv2ZedNode(Node):
         except Exception:
             pass
 
-        # ------- CAN 송신 -------
+        # ------- 커브 기반 rpm 계산 + publish (can_enable 무관, 2026-08-17) -------
+        # 예전엔 이 블록 전체가 "if self.can is not None:" 안에 있어서
+        # can_enable=false(= integrated/post_gps 런처의 정상 설정, arbiter가
+        # 유일한 CAN 송신자여야 함)일 땐 rpm_target 계산 자체가 통째로 안
+        # 돌았음 - 그래서 arbiter가 카메라 주행 rpm으로 자기 고정 파라미터
+        # (camera_mode_rpm)만 쓸 수밖에 없었음. 이제 계산+publish는 항상
+        # 하고, 실제 CAN 전송만 can_enable에 따름.
+        steer_cmd = int(round(steer * self.steer_sign * self.steer_gain))
+        steer_cmd = clamp(steer_cmd, self.steer_min, self.steer_max)
+
+        # 차선 유실 확정 시 rpm 0 (정지)
+        if self.stop_on_lane_lost and not lane_ok:
+            rpm_target = 0
+            steer_cmd = 0
+        else:
+            rpm_target = self._speed_for_steer(steer)
+
+        # 스텝 제한 (급가감속 방지)
+        step = max(1, int(self.rpm_step))
+        if rpm_target > self._rpm_cmd + step:
+            self._rpm_cmd += step
+        elif rpm_target < self._rpm_cmd - step:
+            self._rpm_cmd -= step
+        else:
+            self._rpm_cmd = rpm_target
+        rpm_cmd = clamp(int(self._rpm_cmd), self.rpm_min, self.rpm_max)
+
+        try:
+            self.pub_rpm_target.publish(Float32(data=float(rpm_cmd)))
+        except Exception:
+            pass
+
+        # ------- CAN 송신 (can_enable=true일 때만) -------
         if self.can is not None:
-            steer_cmd = int(round(steer * self.steer_sign * self.steer_gain))
-            steer_cmd = clamp(steer_cmd, self.steer_min, self.steer_max)
-
-            # 차선 유실 확정 시 rpm 0 (정지)
-            if self.stop_on_lane_lost and not lane_ok:
-                rpm_target = 0
-                steer_cmd = 0
-            else:
-                rpm_target = self._speed_for_steer(steer)
-
-            # 스텝 제한 (급가감속 방지)
-            step = max(1, int(self.rpm_step))
-            if rpm_target > self._rpm_cmd + step:
-                self._rpm_cmd += step
-            elif rpm_target < self._rpm_cmd - step:
-                self._rpm_cmd -= step
-            else:
-                self._rpm_cmd = rpm_target
-            rpm_cmd = clamp(int(self._rpm_cmd), self.rpm_min, self.rpm_max)
-
             try:
                 self.can.send_control(rpm_cmd, steer_cmd, self.motor_enable, 0)
                 if self.can_read_feedback:

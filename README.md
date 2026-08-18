@@ -1957,3 +1957,35 @@ re-verified against a fresh full run yet.
 (40°) 이상 -> min_curve_rpm(50, 평평)` 구조로 수정. 기존 대비: `frac`
 계산식이 `turn_angle / max_angle`에서 `(turn_angle - deadzone) /
 (max_angle - deadzone)`로 바뀜. 실차 테스트 아직 안 함.
+
+## 2026-08-17 (이어서): 카메라 곡률기반 rpm을 arbiter가 실제로 쓰도록 배선
+
+이전까지 카메라 노드(`yolopv2_zed_rpm_node.py`)엔 곡률기반 rpm 스케일링
+로직(`_speed_for_steer`, `auto_speed`/`steer_deadzone_deg=2.0`/
+`steer_full_deg=18.0`/`rpm_turn_scale=0.8` - 상한(데드존, 각도 작으면
+그냥 max)/하한(풀커브, `rpm_turn_scale`로 clamp) 둘 다 이미 있었음)이
+있었지만 두 겹으로 막혀서 실제로는 전혀 안 쓰이고 있었음:
+1. `integrated_drive.launch.py`/`post_gps_drive.launch.py`가 `can_enable:
+   False`로 카메라 노드를 띄우는데(arbiter가 유일한 CAN 송신자여야 해서
+   맞는 설정), `_speed_for_steer` 계산 자체가 `if self.can is not None:`
+   블록 안에 있어서 통째로 안 돌았음
+2. 설령 돌았어도 arbiter가 카메라 주행 시 rpm은 자기 고정 파라미터
+   `camera_mode_rpm`만 썼음 - 카메라 계산 결과 자체를 안 받음
+
+**수정:**
+- `yolopv2_zed_rpm_node.py`: rpm_target 계산(+스텝 제한)을 `can_enable`
+  게이트 밖으로 빼서 항상 실행, `~/rpm_target` 토픽으로 항상 publish
+  (`~/motor_rpm`은 그대로 둠 - 그건 오도메트리 기반 속도추정값이라 다른
+  의미)
+- `arbiter_node.py`: `camera_rpm_topic`(기본
+  `/yolopv2_zed_node/rpm_target`) 구독 추가, `_on_camera_rpm` 콜백,
+  카메라 주행 시 `base_rpm = self.camera_rpm`으로 교체 (기존
+  `camera_mode_rpm` 파라미터는 첫 메시지 오기 전 seed 값/폴백으로만 남음)
+- `integrated_drive.launch.py`/`post_gps_drive.launch.py`: 카메라 노드에
+  `auto_speed: true`, `can_target_rpm`(신규 인자 `camera_can_target_rpm`,
+  기본 130 - `camera_mode_rpm`이랑 값은 맞췄지만 int 타입 캐스팅 문제
+  때문에 별도 인자로 분리, `int("130.0")`이 에러나서) 추가
+
+`can_enable: False`는 그대로 유지 - CAN은 여전히 arbiter만 씀, 이번
+수정은 "계산은 하되 CAN 전송은 안 함, 결과만 토픽으로 넘김" 구조.
+아직 실차 테스트 안 함.

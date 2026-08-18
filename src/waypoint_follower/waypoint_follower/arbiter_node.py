@@ -1370,6 +1370,17 @@ class ArbiterNode(Node):
                 self.get_logger().warn(
                     f"CONTROL_META send failed ({exc})", throttle_duration_sec=5.0)
 
+            # GPS_NAV_STATUS (0x204, 2026-08-18) - same "send every real CAN
+            # tick" pairing as CONTROL_META above, so a CANoe operator can
+            # see gps_idx/cross_track_error without the host's own ROS
+            # topics. Logging-only, see can_driver.py's declaration comment.
+            try:
+                can_driver.send_gps_nav_status(
+                    self.bus, self.gps_idx, self.cross_track_error)
+            except Exception as exc:
+                self.get_logger().warn(
+                    f"GPS_NAV_STATUS send failed ({exc})", throttle_duration_sec=5.0)
+
     def _poll_diag_status(self):
         """Drains DIAG_STATUS(0x104) off the bus - firmware confirmed
         sending it as of 2026-08-16 (Can_Comms_SendDiagStatus), see

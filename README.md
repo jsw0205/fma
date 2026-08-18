@@ -2111,3 +2111,27 @@ idx 범위가 서로 안 겹침. gps_priority는 그 구간 동안 카메라(ZED
 배제하고 GPS만 운전하는 존 - 이 구간에서 슬롯 탐지 같은 걸 카메라가
 방해하지 않게 하려는 용도(코드/설계는 기존 그대로, 새 코스에 맞춰
 idx만 새로 지정).
+
+## 2026-08-18 (이어서): 카메라 곡률기반 rpm을 arbiter가 실제로 쓰게 배선 (auto_speed 활성화)
+
+새 CAN 메시지 `0x204 GPS_NAV_STATUS` 추가 (host → AURIX, 로깅/CANoe
+가시성 전용, `0x203 CONTROL_META`와 같은 취지) - "카메라 주행 중 GPS
+경로에서 너무 멀어지면 GPS로 복귀한다"는 그 판단 근거를 CAN에도 실어서
+CANoe에서 볼 수 있게 함:
+
+```
+byte0-1 : gps_idx               (uint16) - 지금 추종 중인 웨이포인트 인덱스
+byte2-3 : cross_track_error_cm  (int16, cm) - 경로 대비 부호 있는 횡오차
+byte4-7 : 미사용
+```
+
+`arbiter_node.py`가 실제 CAN 프레임(`0x200`) 보낼 때마다 `0x203`이랑
+같이 이것도 쏨 (`_log_can()` 안에서). `cross_track_error_cm=-32768`이면
+"값 없음"(NaN/stale) - 0이랑 구분하려고 별도 sentinel 씀. 펌웨어가
+이 ID를 구독 안 해도(파싱 안 해도) **차량 동작엔 전혀 지장 없음** -
+CAN 브로드캐스트 특성상 관심 없는 ID는 그냥 무시되는 게 정상 동작.
+
+`can_driver.py`/`henes_can.dbc`/`README_CAN_PROTOCOL.md` 셋 다 갱신.
+겸사겸사 `can_driver.py`의 `parse_diag_status()` 주석에 남아있던 stale
+"NOT YET SENT BY FIRMWARE"도 8/16 로그로 실제 송신 확인된 내용으로
+갱신함.

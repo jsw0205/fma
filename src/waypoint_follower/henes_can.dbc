@@ -69,6 +69,12 @@ BO_ 260 DIAG_STATUS: 8 HOST
  SG_ rx_seq_echo : 48|8@1+ (1,0) [0|255] "" HOST
  SG_ reserved_104 : 56|8@1+ (1,0) [0|255] "" HOST
 
+BO_ 516 GPS_NAV_STATUS: 8 HOST
+ SG_ gps_idx : 0|16@1+ (1,0) [0|65535] "" AURIX
+ SG_ cross_track_error_cm : 16|16@1- (1,0) [-32767|32767] "cm" AURIX
+ SG_ reserved_204a : 32|16@1+ (1,0) [0|65535] "" AURIX
+ SG_ reserved_204b : 48|16@1+ (1,0) [0|65535] "" AURIX
+
 CM_ BU_ HOST "Jetson/RPi 쪽 ROS2 스택 (control_arbiter가 유일한 실제 제어 송신자)";
 CM_ BU_ AURIX "TC275 조향/구동 액추에이션 펌웨어";
 
@@ -82,6 +88,10 @@ CM_ BO_ 260 "2026-08-15 신규, 펌웨어 미구현 (파싱 함수만 호스트�
 CM_ SG_ 260 applied_stop_mode "펌웨어가 *실제로* 적용한 상태 - CONTROL_META(515).req_stop_mode와 다르면 명령이 안 먹힌 것. 주의: 이 신호의 0/1/2는 req_stop_mode의 0/1/2와 의미가 다름 (아래 VAL_ 참고) - 액추에이션 레이어가 StopHoldEnable 하나뿐이라 normal/hill을 구분 못해 재정의됨.";
 CM_ SG_ 260 fault_flags "비트필드. bit0(COMM_TIMEOUT)만 구현됨, 나머지 비트는 항상 0 (미구현, 아래 VAL_TABLE 참고).";
 CM_ SG_ 260 rx_seq_echo "CONTROL_META(515).seq를 그대로 되돌려줌.";
+
+CM_ BO_ 516 "2026-08-18 신규. CONTROL_META(515)처럼 로깅/CANoe 가시성 전용 - AURIX가 이걸 파싱 안 해도 차량 동작엔 전혀 지장 없음(CAN은 브로드캐스트라 구독 안 하는 ID는 그냥 무시됨). control_arbiter가 실제 CAN 프레임 보낼 때마다 같이 쏨.";
+CM_ SG_ 516 gps_idx "GPS가 지금 추종 중인(가장 가까운) 웨이포인트 인덱스. arbiter_node.py의 self.gps_idx 그대로.";
+CM_ SG_ 516 cross_track_error_cm "기록된 경로 대비 현재 위치의 부호 있는 횡오차, cm 단위(0.01m factor는 이미 곱해서 정수로 넣음 - 실제 신호명은 cm지만 DBC factor=1이라 값 그대로가 cm). -32768(=[-32767|32767] 범위 밖의 sentinel)이면 값 없음/NaN - 0으로 보내면 '완벽하게 라인 위'로 오해할 수 있어서 구분해둠.";
 
 VAL_ 512 stop_mode 0 "normal_hold" 1 "flat_coast" 2 "hill" ;
 VAL_ 515 req_stop_mode 0 "normal_hold" 1 "flat_coast" 2 "hill" ;

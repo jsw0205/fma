@@ -13,10 +13,11 @@ Classic CAN 2.0A, 표준 11비트 ID, 500kbps, 프레임당 8바이트 고정.
 | `0x101` | AURIX → host | STEERING_STATUS | **기존, 안 건드림** | 조향 피드백 (포텐셔미터, 실측/목표 각도) |
 | `0x102` | AURIX → host | DRIVE_STATUS | **기존, 안 건드림** | 구동 피드백 (엔코더, 실측/목표 rpm, pwm) |
 | `0x203` | host → AURIX | **CONTROL_META** | **호스트 쪽 구현 완료** | 로깅/CANoe 가시성 전용 — 실제 제어엔 안 씀 |
-| `0x104` | AURIX → host | **DIAG_STATUS** | **파싱 함수만 준비됨, 펌웨어 미구현** | 펌웨어가 실제로 뭘 적용했는지 + 고장 플래그 |
+| `0x104` | AURIX → host | **DIAG_STATUS** | **호스트 파싱 완료, 8/16 로그부터 펌웨어 실송신 확인됨** | 펌웨어가 실제로 뭘 적용했는지 + 고장 플래그 |
+| `0x204` | host → AURIX | **GPS_NAV_STATUS** | **호스트 쪽 구현 완료 (2026-08-18)** | 로깅/CANoe 가시성 전용 — gps_idx + cross_track_error |
 
 `0x200`/`0x101`/`0x102`는 펌웨어가 이미 파싱하는 프로토콜이라 **그대로 둠** —
-새로 필요한 건 전부 새 ID 두 개(`0x203`, `0x104`)로 추가.
+새로 필요한 건 전부 새 ID들(`0x203`, `0x104`, `0x204`)로 추가.
 
 ---
 
@@ -73,7 +74,27 @@ struct 포맷: `<hhBBBB`
 다 못 담아서 `~/.ros/arbiter_logs/arbiter_can_<시각>.csv`에 원본 문자열
 카테고리로 계속 남음 — CAN 프레임은 "한눈에 볼 요약"용, CSV가 "정밀 분석"용.
 
-## `0x104` DIAG_STATUS (AURIX → host) — **펌웨어 미구현, 파싱만 준비됨**
+## `0x204` GPS_NAV_STATUS (host → AURIX)
+
+**실제 제어에는 안 쓰임** — `0x203 CONTROL_META`와 같은 취지, 같은 틱에
+같이 쏨. AURIX가 이걸 파싱 안 해도 차량 동작엔 전혀 지장 없음 (CAN은
+브로드캐스트라 구독 안 하는 ID는 그냥 무시됨). "카메라 주행 중 GPS
+경로에서 너무 멀어지면 복귀한다"는 그 판단 근거(지금 몇 번 웨이포인트를
+추종 중인지, 경로에서 얼마나 벗어났는지)를 CANoe에서도 바로 보이게
+하려고 2026-08-18 추가.
+
+```
+byte0-1 : gps_idx               (uint16) - 지금 추종 중인 웨이포인트 인덱스
+byte2-3 : cross_track_error_cm  (int16, cm 단위) - 경로 대비 부호 있는 횡오차
+byte4-7 : (미사용)
+```
+struct 포맷: `<HhHH`
+
+`cross_track_error_cm`이 `-32768`(int16 최솟값)이면 "값 없음"(NaN/GPS
+이탈/stale) - `0`으로 보내면 "완벽하게 라인 위"랑 구분이 안 돼서 별도
+sentinel로 분리해둠. 범위는 ±327.67m (그 이상 벗어나면 클램프).
+
+## `0x104` DIAG_STATUS (AURIX → host) — **호스트 파싱 완료, 8/16 로그부터 실제 송신 확인됨**
 
 ```
 byte0   : applied_stop_mode   (uint8) - 펌웨어가 실제로 적용한 StopHoldEnable 파생 모드

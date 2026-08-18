@@ -1,3 +1,4 @@
+import math
 import struct
 
 import can
@@ -11,6 +12,13 @@ STEERING_STATUS_ID = 0x101
 # alongside them, not replacements:
 CONTROL_META_ID = 0x203    # TX (host -> AURIX): what the arbiter decided + why
 DIAG_STATUS_ID = 0x104     # RX (AURIX -> host): firmware-side ground truth + health
+# 2026-08-18: another logging-only TX addition, same spirit as
+# CONTROL_META_ID - AURIX doesn't need to parse this for anything to keep
+# working (CAN is broadcast; an ID nothing subscribes to is just ignored),
+# it's purely so a CANoe operator (or anyone sniffing the bus) can see how
+# far GPS thinks the vehicle has drifted from the recorded line and which
+# waypoint it's tracking, without needing the host's own ROS topics.
+GPS_NAV_STATUS_ID = 0x204  # TX (host -> AURIX): gps_idx + cross_track_error_m
 
 # CONTROL_META_ID's controller_id byte - coarse "who/why" classification of
 # the arbiter_node.py category string for that tick (see arbiter_node.py's
@@ -173,6 +181,40 @@ def send_control_meta(bus, target_rpm, target_steer, stop_mode, controller_id, s
     bus.send(message)
 
 
+GPS_NAV_STATUS_NO_CTE = -32768  # sentinel: cross_track_error unavailable (NaN/stale)
+
+
+def make_gps_nav_status_data(gps_idx, cross_track_error_m):
+    # byte0-1: gps_idx (uint16, unsigned, factor 1) - current/nearest
+    # waypoint index. byte2-3: cross_track_error (int16, signed, factor
+    # 0.01 -> cm resolution, +-327.67m range) - signed distance from the
+    # recorded line, sign convention matches arbiter_node.py's
+    # cross_track_error (left/right). GPS_NAV_STATUS_NO_CTE (int16 min) if
+    # NaN or otherwise unavailable, rather than silently sending 0 (which
+    # would look like "perfectly on the line"). byte4-7: unused.
+    if cross_track_error_m is None or math.isnan(cross_track_error_m):
+        cte_raw = GPS_NAV_STATUS_NO_CTE
+    else:
+        cte_raw = int(round(cross_track_error_m * 100.0))
+        cte_raw = max(-32767, min(32767, cte_raw))  # keep the sentinel value free
+    return struct.pack(
+        "<HhHH",
+        int(gps_idx) & 0xFFFF,
+        cte_raw,
+        0,
+        0,
+    )
+
+
+def send_gps_nav_status(bus, gps_idx, cross_track_error_m):
+    """Logging/CANoe-visibility only, same spirit as send_control_meta -
+    AURIX doesn't need to do anything with this for the vehicle to keep
+    working (see GPS_NAV_STATUS_ID's declaration comment)."""
+    data = make_gps_nav_status_data(gps_idx, cross_track_error_m)
+    message = can.Message(arbitration_id=GPS_NAV_STATUS_ID, data=data, is_extended_id=False)
+    bus.send(message)
+
+
 def parse_diag_status(data):
     # byte0: applied_stop_mode (firmware's *actual* internal StopHoldEnable-
     # derived mode, not just an echo of what was requested - the whole
@@ -180,8 +222,10 @@ def parse_diag_status(data):
     # 2026-08 judder investigation this was designed after), byte1:
     # fault_flags (FAULT_* bitfield), byte2-3: steer_pwm_duty, byte4-5:
     # supply_voltage_mV, byte6: rx_seq_echo, byte7: unused.
-    # NOT YET SENT BY FIRMWARE - this parser is ready for when it is; see
-    # README_CAN_PROTOCOL.md.
+    # Firmware confirmed actually sending this as of the 2026-08-16
+    # CANoe log (Logging_2.asc) - supply_voltage_mV was always 0 in that
+    # log though (unwired/stub suspected, ask firmware team), and
+    # fault_flags never nonzero. See README_CAN_PROTOCOL.md.
     (applied_stop_mode, fault_flags, steer_pwm_duty, supply_voltage_mV,
      rx_seq_echo, _reserved) = struct.unpack("<BBhHBB", data)
     return {

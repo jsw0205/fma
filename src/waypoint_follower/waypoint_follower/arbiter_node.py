@@ -425,6 +425,7 @@ class ArbiterNode(Node):
         self.camera_bad_streak = 0
         self.camera_good_streak = 0
         self.gps_steer = 0.0
+        self._filtered_gps_steer = None  # see on_timer's filter block
         self.gps_rpm = 0.0
         self.gps_idx = 0
         self.gps_valid = False
@@ -777,6 +778,29 @@ class ArbiterNode(Node):
         gps_ok = self.gps_valid and self._fresh(
             self.gps_last_time, self.get_parameter("gps_timeout_sec").value
         )
+
+        # Filtered gps_steer for gps_priority/gps_priority_slow (2026-08-18)
+        # - those zones send raw self.gps_steer (Stanley's own output)
+        # straight to CAN, completely bypassing base_steer_lowpass_alpha's
+        # filter (that one only ever touches base_steer, the plain no-zone
+        # driving fallback - see its own declaration comment). Confirmed
+        # via real CAN log (arbiter_can_20260818_183017.csv): entering a
+        # gps_priority zone swung full-lock (+-14.3deg) several times in
+        # ~6s, actually sent, not just Stanley background noise. Same
+        # alpha param, independent filter state/reset (keyed off gps_ok,
+        # not base_source) since this needs to keep working even while
+        # camera_ok is what's driving base_steer.
+        alpha = self.get_parameter("base_steer_lowpass_alpha").value
+        if not gps_ok:
+            self._filtered_gps_steer = None
+        else:
+            if self._filtered_gps_steer is None:
+                self._filtered_gps_steer = self.gps_steer
+            else:
+                self._filtered_gps_steer = (
+                    alpha * self.gps_steer + (1.0 - alpha) * self._filtered_gps_steer
+                )
+
         avoid_ok = self._fresh(
             self.avoid_last_time, self.get_parameter("avoid_timeout_sec").value
         )
@@ -1081,12 +1105,12 @@ class ArbiterNode(Node):
             check_light = self.get_parameter("gps_priority_check_traffic_light").value
             if check_light and self._traffic_light_is_red():
                 self._send_true_deg(
-                    self.gps_steer, 0.0, 0, 1, "event_zone_gps_priority_red",
+                    self._filtered_gps_steer, 0.0, 0, 1, "event_zone_gps_priority_red",
                     f"event_zone(gps_priority, idx={self.gps_idx}) RED - stopped",
                 )
             else:
                 self._send_true_deg(
-                    self.gps_steer, self._parking_ramped_rpm(self.gps_rpm), 1, 0,
+                    self._filtered_gps_steer, self._parking_ramped_rpm(self.gps_rpm), 1, 0,
                     "event_zone_gps_priority",
                     f"event_zone(gps_priority, idx={self.gps_idx})",
                 )
@@ -1102,12 +1126,12 @@ class ArbiterNode(Node):
             check_light = self.get_parameter("gps_priority_check_traffic_light").value
             if check_light and self._traffic_light_is_red():
                 self._send_true_deg(
-                    self.gps_steer, 0.0, 0, 1, "event_zone_gps_priority_slow_red",
+                    self._filtered_gps_steer, 0.0, 0, 1, "event_zone_gps_priority_slow_red",
                     f"event_zone(gps_priority_slow, idx={self.gps_idx}) RED - stopped",
                 )
             else:
                 self._send_true_deg(
-                    self.gps_steer, slow_rpm, 1, 0,
+                    self._filtered_gps_steer, slow_rpm, 1, 0,
                     "event_zone_gps_priority_slow",
                     f"event_zone(gps_priority_slow, idx={self.gps_idx})",
                 )

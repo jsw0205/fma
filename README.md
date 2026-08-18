@@ -2152,3 +2152,24 @@ OAK-D 없이 테스트할 때 zone이 고장난 것처럼 보이게 만듦(GPS�
 동작 확인됨). 구간을 **28~40으로 넓힘** (기존 30~35).
 
 이날 밤 테스트는 언덕 지나서 정지, 수동 조종으로 복귀하며 종료.
+
+## 2026-08-18 (이어서): gps_priority에도 base_steer_lowpass_alpha 필터 적용
+
+실차 CAN 로그(`arbiter_can_20260818_183017.csv`)로 확인: `gps_priority`
+구간 진입 직후(t=36~42s) `self.gps_steer`(Stanley 원본값)가 필터 하나도
+안 거치고 그대로 CAN에 나가서 **±14.3° 풀락을 6초 안에 여러 번** 왔다갔다함
+(사용자가 실차에서 "왼쪽 오른쪽 한번씩 확 땡겼다"고 느낀 순간과 일치).
+`base_steer_lowpass_alpha` 필터는 `base_steer`(평상 카메라/gps_fallback
+주행) 한 곳에만 걸려있었고 `gps_priority`/`gps_priority_slow`는 처음부터
+범위 밖이었음.
+
+**수정**: `self._filtered_gps_steer`라는 독립된 필터 상태 추가 (같은
+`base_steer_lowpass_alpha` 파라미터 재사용, `gps_ok` 기준으로 리셋 -
+`base_source`/카메라 상태와 무관하게 계속 동작해야 해서 `base_steer`
+필터 상태랑은 분리함). `gps_priority`/`gps_priority_slow` 두 분기 4곳
+전부 `self.gps_steer` → `self._filtered_gps_steer`로 교체.
+
+`arbiter_node.py` 자체 기본값은 여전히 `1.0`(꺼짐, 다른 데 영향 없음).
+**`post_gps_drive.launch.py`는 이번 확인된 실제 문제 때문에 launch
+기본값을 `0.3`으로 잡음** (20Hz 기준 시상수 약 0.2초) - 실차에서
+`base_steer_lowpass_alpha:=` 값 바꿔가며 튜닝 가능.

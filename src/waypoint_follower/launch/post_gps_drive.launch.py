@@ -61,6 +61,15 @@ def generate_launch_description():
     gps_priority_check_traffic_light_arg = DeclareLaunchArgument(
         "gps_priority_check_traffic_light", default_value="false"
     )
+    # 2026-08-18: arbiter_node.py's own default is 1.0 (filter off,
+    # backward-compatible everywhere else) - defaulted to 0.3 HERE because
+    # tonight's real CAN log confirmed gps_priority actually sending
+    # full-lock swings (+-14.3deg, several times in ~6s) unfiltered. 20Hz
+    # loop, alpha=0.3 has roughly a ~0.2s time constant. Tune live:
+    # smaller alpha = smoother but more lag.
+    base_steer_lowpass_alpha_arg = DeclareLaunchArgument(
+        "base_steer_lowpass_alpha", default_value="0.3"
+    )
     traffic_light_model_arg = DeclareLaunchArgument(
         "traffic_light_model",
         default_value="/home/a/ros2_ws/src/traffic_light/weights/best.pt",
@@ -250,6 +259,9 @@ def generate_launch_description():
             "gps_priority_check_traffic_light": ParameterValue(
                 LaunchConfiguration("gps_priority_check_traffic_light"), value_type=bool
             ),
+            "base_steer_lowpass_alpha": ParameterValue(
+                LaunchConfiguration("base_steer_lowpass_alpha"), value_type=float
+            ),
             "camera_mode_rpm": ParameterValue(
                 LaunchConfiguration("camera_mode_rpm"), value_type=float
             ),
@@ -340,6 +352,7 @@ def generate_launch_description():
         cruise_rpm_arg,
         curve_lead_margin_arg,
         gps_priority_check_traffic_light_arg,
+        base_steer_lowpass_alpha_arg,
         traffic_light_model_arg,
         traffic_light_show_debug_arg,
         traffic_light_conf_threshold_arg,

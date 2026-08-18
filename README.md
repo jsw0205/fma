@@ -2010,3 +2010,13 @@ Hill_Stop(언덕정지, idx 정지 + stop_mode 전환)이 아직 미구현이라
 - `post_gps_drive.launch.py`의 `EVENT_ZONES`를 `["44:44:stop:3"]`으로
   임시 설정 (테스트용, 8/18 저녁 새로 기록한 코스
   `path_20260818_145848.csv` 기준). 실차 테스트 예정.
+
+## 2026-08-18 (이어서): 타이밍 정지에 stop_mode=2(hill) 반영
+
+바로 위 hold_sec 타이밍정지 테스트에서, 정지 중 stop_mode를 1(flat)
+대신 **2(hill)**로 보내도록 수정 - 사용자 요청("의도완 다른데 암튼
+작동하는거아니까"). 정확한 설계는 아님(진짜 Hill_Stop은 stop 존의
+변형이 아니라 별도 state가 돼야 함, 다이어그램에도 그렇게 그려둠) -
+CAN 레벨에서 stop_mode=2 동작 자체를 실차로 확인해보려는 임시 테스트.
+정지 중(hold 안 끝난 동안)만 stop_mode=2, hold_sec 없는 기존 무한정지
+zone은 그대로 stop_mode=1 유지.

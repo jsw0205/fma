@@ -992,10 +992,12 @@ class ArbiterNode(Node):
             # zone_extra here = optional hold duration in seconds
             # ('start:end:stop:hold_sec', e.g. '44:44:stop:3') - None (old
             # 3-field 'start:end:stop') means hold indefinitely, the
-            # original behavior, unchanged. This is a quick stand-in for
-            # the not-yet-built Hill_Stop state (idx-triggered stop +
-            # stop_mode change) - just a plain timed stop for now, doesn't
-            # touch stop_mode beyond the existing 1 (flat).
+            # original plain-stop behavior, unchanged (stop_mode=1/flat).
+            # The timed branch below is the Hill_Stop stand-in specifically,
+            # so it sends stop_mode=2 (hill) instead - not the "correct"
+            # design (that's a real Hill_Stop state, not a stop-zone
+            # variant), but close enough to test the CAN-level behavior
+            # per the user's call, 2026-08-18.
             hold_sec = zone_extra
             if hold_sec is None:
                 self._send_true_deg(
@@ -1017,9 +1019,9 @@ class ArbiterNode(Node):
 
                 if not self._stop_hold_done:
                     self._send_true_deg(
-                        0.0, 0.0, 0, 1, "event_zone_stop_timed",
+                        0.0, 0.0, 0, 2, "event_zone_stop_timed",
                         f"event_zone(stop, idx={self.gps_idx}) holding "
-                        f"{elapsed:.1f}/{hold_sec:.1f}s",
+                        f"{elapsed:.1f}/{hold_sec:.1f}s (stop_mode=2/hill)",
                     )
                 elif base_source is not None:
                     # Hold's over - resume normal driving even though idx

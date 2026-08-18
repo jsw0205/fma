@@ -392,6 +392,11 @@ class ArbiterNode(Node):
         if self.event_zones:
             self.get_logger().info(f"event zones: {self.event_zones}")
 
+        # Timed "stop" zone hold state - see the "stop" branch in on_timer.
+        self._stop_hold_key = None
+        self._stop_hold_start_time = None
+        self._stop_hold_done = False
+
         self.camera_steer = float("nan")
         # Seeded from camera_mode_rpm (not 0.0/nan) so an early camera-
         # driven tick, before the first ~/rpm_target message arrives,
@@ -676,14 +681,15 @@ class ArbiterNode(Node):
         return (not light_fresh) or (self.traffic_light_state == "STOP")
 
     def _zone_at(self, idx):
+        """Returns (start, end, kind, extra) - extra is the RAW 4th field,
+        possibly None if the entry didn't have one. Each zone kind that
+        uses it interprets None its own way at the call site (they mean
+        different things: traffic_light defaults it to `end`, stop
+        defaults it to "hold indefinitely" - see their handling in
+        on_timer)."""
         for start, end, kind, extra in self.event_zones:
             if start <= idx <= end:
-                # traffic_light's stopline defaults to `end` for backward
-                # compatibility with 3-field entries - see parse_event_
-                # zones' docstring for why a real deployment should give
-                # `end` margin past the actual stopline instead.
-                stopline = extra if extra is not None else end
-                return start, end, kind, stopline
+                return start, end, kind, extra
         return None, None, None, None
 
     def _camera_deviation_ok(self):
@@ -759,7 +765,16 @@ class ArbiterNode(Node):
         avoid_ok = self._fresh(
             self.avoid_last_time, self.get_parameter("avoid_timeout_sec").value
         )
-        zone_start, zone_end, zone, zone_stopline = self._zone_at(self.gps_idx)
+        zone_start, zone_end, zone, zone_extra = self._zone_at(self.gps_idx)
+
+        # Timed "stop" zone hold state reset - see the "stop" branch below.
+        # Cleared whenever idx isn't inside a "stop" zone at all, so a
+        # later re-entry (this zone again, or a different one) starts a
+        # fresh hold instead of remembering "already done" from last time.
+        if zone != "stop":
+            self._stop_hold_key = None
+            self._stop_hold_start_time = None
+            self._stop_hold_done = False
 
         # Edge-triggers /parking_start (on this zone's side only) exactly
         # once per zone entry (not every cycle - the parking node treats
@@ -974,9 +989,52 @@ class ArbiterNode(Node):
             # maneuver - see the "engaged" comment above.
             self._handle_parking_zone(engaged_side, base_source, base_steer, base_rpm, gps_ok)
         elif zone == "stop":
-            self._send_true_deg(
-                0.0, 0.0, 0, 1, "event_zone_stop", f"event_zone(stop, idx={self.gps_idx})"
-            )
+            # zone_extra here = optional hold duration in seconds
+            # ('start:end:stop:hold_sec', e.g. '44:44:stop:3') - None (old
+            # 3-field 'start:end:stop') means hold indefinitely, the
+            # original behavior, unchanged. This is a quick stand-in for
+            # the not-yet-built Hill_Stop state (idx-triggered stop +
+            # stop_mode change) - just a plain timed stop for now, doesn't
+            # touch stop_mode beyond the existing 1 (flat).
+            hold_sec = zone_extra
+            if hold_sec is None:
+                self._send_true_deg(
+                    0.0, 0.0, 0, 1, "event_zone_stop", f"event_zone(stop, idx={self.gps_idx})"
+                )
+            else:
+                key = (zone_start, zone_end)
+                if self._stop_hold_key != key:
+                    self._stop_hold_key = key
+                    self._stop_hold_start_time = self.get_clock().now()
+                    self._stop_hold_done = False
+
+                if not self._stop_hold_done:
+                    elapsed = (
+                        self.get_clock().now() - self._stop_hold_start_time
+                    ).nanoseconds / 1e9
+                    if elapsed >= hold_sec:
+                        self._stop_hold_done = True
+
+                if not self._stop_hold_done:
+                    self._send_true_deg(
+                        0.0, 0.0, 0, 1, "event_zone_stop_timed",
+                        f"event_zone(stop, idx={self.gps_idx}) holding "
+                        f"{elapsed:.1f}/{hold_sec:.1f}s",
+                    )
+                elif base_source is not None:
+                    # Hold's over - resume normal driving even though idx
+                    # is technically still inside [zone_start, zone_end]
+                    # (it hasn't moved while stopped). Vehicle moving again
+                    # will naturally push idx past zone_end shortly.
+                    self._send_true_deg(
+                        base_steer, base_rpm, 1, 0, base_source,
+                        f"event_zone(stop, idx={self.gps_idx}) hold done, resuming via {base_source}",
+                    )
+                else:
+                    self._send_true_deg(
+                        0.0, 0.0, 0, 1, "safe_stop",
+                        f"event_zone(stop, idx={self.gps_idx}) hold done but no valid source to resume with",
+                    )
         elif zone == "gps_priority" and gps_ok:
             # 2026-08-16: gps_priority excludes the ZED lane-following
             # camera (so slot detection right before a parking search
@@ -1078,6 +1136,9 @@ class ArbiterNode(Node):
             # confirmed STOP, so the vehicle just drove through on whatever
             # camera/GPS was already doing - confirmed 2026-08-06, showed as
             # "GO" sailing through a red light right at the zone boundary.
+            # zone_extra defaults to zone_end here (old 3-field behavior) -
+            # "stop"'s branch below defaults the same raw field differently.
+            zone_stopline = zone_extra if zone_extra is not None else zone_end
             at_stopline = self.gps_idx >= zone_stopline
 
             if base_source is None:

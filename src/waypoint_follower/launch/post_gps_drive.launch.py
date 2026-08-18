@@ -197,7 +197,12 @@ def generate_launch_description():
     # ("Expected 'value' to be one of [...], but got '()' of type 'tuple'"
     # - confirmed live 2026-08-16, this is why control_arbiter didn't even
     # start last run).
-    EVENT_ZONES = [""]
+    # 2026-08-18: 언덕정지 자리 테스트용 - idx 44에서 3초 정지 후 자동 재출발
+    # (진짜 Hill_Stop, stop_mode 전환은 아직 미구현 - 그냥 타이밍만 시험).
+    # '44:44:stop:3' 형식: start:end:type:hold_sec (hold_sec 있으면 그 시간
+    # 지난 뒤 base_steer/base_rpm으로 자동 재개, 없으면 예전처럼 무한정지).
+    EVENT_ZONES = ["44:44:stop:3"]
+    # EVENT_ZONES = [""]
     # EVENT_ZONES = [
     #     "10:29:traffic_light:18",
     #     "30:37:gps_priority",

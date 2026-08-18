@@ -1989,3 +1989,24 @@ re-verified against a fresh full run yet.
 `can_enable: False`는 그대로 유지 - CAN은 여전히 arbiter만 씀, 이번
 수정은 "계산은 하되 CAN 전송은 안 함, 결과만 토픽으로 넘김" 구조.
 아직 실차 테스트 안 함.
+
+## 2026-08-18: "stop" 이벤트존에 타이밍 정지(hold_sec) 지원 추가
+
+Hill_Stop(언덕정지, idx 정지 + stop_mode 전환)이 아직 미구현이라, 그
+자리에 우선 "idx에서 N초 정지 후 자동 재출발"만 되는 간단 버전을 넣어서
+테스트해보려는 목적. `stop_mode` 전환은 안 함 - 순수 타이밍 정지만.
+
+- `parse_event_zones`/`_zone_at`: 4번째 필드(`extra`)를 이제 zone
+  kind별로 다르게 해석 - `traffic_light`는 여전히 stopline(없으면
+  `end`로 폴백, 기존과 동일), `stop`은 hold_sec(없으면 무한정지, 기존과
+  동일 - 하위호환).
+- `"stop"` 브랜치: `hold_sec`이 있으면 그 zone에 처음 진입한 시각을
+  기록해두고, 경과시간이 `hold_sec` 넘으면 `base_steer`/`base_rpm`(카메라
+  또는 gps_fallback, 그 순간 뭐가 유효하냐에 따라)으로 자동 재개. idx가
+  실제로 그 존을 벗어나면(차가 다시 움직이면서) 상태 리셋 - 다음 랩에
+  같은 존 다시 만나면 또 처음부터 정지.
+- 포맷: `"start:end:stop:hold_sec"`, 예: `"44:44:stop:3"` (idx 44에서
+  3초 정지 후 재출발). `hold_sec` 생략하면 기존처럼 무한정지.
+- `post_gps_drive.launch.py`의 `EVENT_ZONES`를 `["44:44:stop:3"]`으로
+  임시 설정 (테스트용, 8/18 저녁 새로 기록한 코스
+  `path_20260818_145848.csv` 기준). 실차 테스트 예정.

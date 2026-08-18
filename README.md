@@ -2135,3 +2135,20 @@ CAN 브로드캐스트 특성상 관심 없는 ID는 그냥 무시되는 게 정
 겸사겸사 `can_driver.py`의 `parse_diag_status()` 주석에 남아있던 stale
 "NOT YET SENT BY FIRMWARE"도 8/16 로그로 실제 송신 확인된 내용으로
 갱신함.
+
+## 2026-08-18 (이어서): gps_priority 존 폭 확대 (30-35 → 28-40), 신호등 체크 토글 추가
+
+**신호등 체크 토글**: `gps_priority`/`gps_priority_slow`의 2026-08-16 red-light
+fail-safe(`traffic_light_node` 안 돌고 있으면 무조건 RED로 간주 -> 정지)가
+OAK-D 없이 테스트할 때 zone이 고장난 것처럼 보이게 만듦(GPS로 안 넘어가고
+그냥 멈춰버림). `gps_priority_check_traffic_light` 파라미터(기본
+`True`, `post_gps_drive.launch.py`의 launch 인자는 이 런처의 실제 사용
+맥락 맞춰 기본 `False`)로 토글 가능하게 함 - OAK-D 붙이면 다시 true로.
+
+**gps_priority 존 폭**: 실차 테스트에서 idx 30~35 구간이 91초 동안
+`camera`/`event_zone_gps_priority` 사이를 계속 플랩핑함(로그 확인:
+`t=68~159s` 구간에서 camera 1513틱 vs gps_priority 193틱) - idx가 좁은
+구간 경계를 GPS 지터로 계속 넘나든 것으로 추정(zone 자체 로직은 정상
+동작 확인됨). 구간을 **28~40으로 넓힘** (기존 30~35).
+
+이날 밤 테스트는 언덕 지나서 정지, 수동 조종으로 복귀하며 종료.

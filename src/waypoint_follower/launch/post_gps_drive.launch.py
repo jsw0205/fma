@@ -52,6 +52,15 @@ def generate_launch_description():
     # the "infeasible corner -> full lock" safety fallback in
     # stanley_control still applies regardless of this value).
     curve_lead_margin_arg = DeclareLaunchArgument("curve_lead_margin", default_value="1.2")
+    # 2026-08-18: default false here (unlike arbiter_node.py's own True
+    # default) - this launch file's normal use tonight has no OAK-D
+    # running, and gps_priority's red-light fail-safe otherwise makes it
+    # just stop instead of driving through on GPS. Pass
+    # gps_priority_check_traffic_light:=true once OAK-D is actually
+    # in the loop.
+    gps_priority_check_traffic_light_arg = DeclareLaunchArgument(
+        "gps_priority_check_traffic_light", default_value="false"
+    )
     traffic_light_model_arg = DeclareLaunchArgument(
         "traffic_light_model",
         default_value="/home/a/ros2_ws/src/traffic_light/weights/best.pt",
@@ -217,7 +226,7 @@ def generate_launch_description():
     # '44:44:stop:3' 형식: start:end:type:hold_sec (hold_sec 있으면 그 시간
     # 지난 뒤 base_steer/base_rpm으로 자동 재개, 없으면 예전처럼 무한정지).
     EVENT_ZONES = [
-        "30:35:gps_priority",
+        "28:40:gps_priority",
         "44:44:stop:3",
         "65:73:gps_priority",
     ]
@@ -238,6 +247,9 @@ def generate_launch_description():
         output="log",
         parameters=[{
             "event_zones": EVENT_ZONES,
+            "gps_priority_check_traffic_light": ParameterValue(
+                LaunchConfiguration("gps_priority_check_traffic_light"), value_type=bool
+            ),
             "camera_mode_rpm": ParameterValue(
                 LaunchConfiguration("camera_mode_rpm"), value_type=float
             ),
@@ -327,6 +339,7 @@ def generate_launch_description():
         camera_can_target_rpm_arg,
         cruise_rpm_arg,
         curve_lead_margin_arg,
+        gps_priority_check_traffic_light_arg,
         traffic_light_model_arg,
         traffic_light_show_debug_arg,
         traffic_light_conf_threshold_arg,

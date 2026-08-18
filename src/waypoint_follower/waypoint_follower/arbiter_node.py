@@ -278,6 +278,16 @@ class ArbiterNode(Node):
         # 평행 entry) where full cruise speed isn't wanted but it's not an
         # "avoid" zone either.
         self.declare_parameter("gps_priority_slow_rpm", 80.0)
+        # 2026-08-18: gps_priority/gps_priority_slow's traffic_light check
+        # (added 2026-08-16, see their branches) fails safe to a full stop
+        # whenever traffic_light_node isn't running/publishing - which is
+        # exactly the case when testing without the OAK-D hooked up, and
+        # makes the zone look "broken" (stops instead of driving through
+        # on GPS) even though gps_priority itself is configured fine. This
+        # toggle lets a no-OAK-D test run go back to the pre-08-16 behavior
+        # (pure GPS-only zone, no red-light gating) without deleting that
+        # fix - flip back to true once OAK-D is actually in the loop.
+        self.declare_parameter("gps_priority_check_traffic_light", True)
         # traffic_light package (traffic_light_node): publishes GO/STOP on
         # this topic from OAK-D + YOLO red-light detection. Only consulted
         # inside "traffic_light" event zones - end idx of the zone is
@@ -1068,7 +1078,8 @@ class ArbiterNode(Node):
             # concept here (unlike "traffic_light" zones), so red just
             # means a full stop for as long as it's red, not a graceful
             # approach-and-stop-at-line.
-            if self._traffic_light_is_red():
+            check_light = self.get_parameter("gps_priority_check_traffic_light").value
+            if check_light and self._traffic_light_is_red():
                 self._send_true_deg(
                     self.gps_steer, 0.0, 0, 1, "event_zone_gps_priority_red",
                     f"event_zone(gps_priority, idx={self.gps_idx}) RED - stopped",
@@ -1088,7 +1099,8 @@ class ArbiterNode(Node):
                 self._parking_ramped_rpm(self.gps_rpm),
                 self.get_parameter("gps_priority_slow_rpm").value,
             )
-            if self._traffic_light_is_red():
+            check_light = self.get_parameter("gps_priority_check_traffic_light").value
+            if check_light and self._traffic_light_is_red():
                 self._send_true_deg(
                     self.gps_steer, 0.0, 0, 1, "event_zone_gps_priority_slow_red",
                     f"event_zone(gps_priority_slow, idx={self.gps_idx}) RED - stopped",

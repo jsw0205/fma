@@ -1034,6 +1034,17 @@ class ArbiterNode(Node):
                     self._stop_hold_key = key
                     self._stop_hold_start_time = self.get_clock().now()
                     self._stop_hold_done = False
+                    # Mark fired IMMEDIATELY on first entry, not only once
+                    # the hold completes (2026-08-18 fix). Rolling on a
+                    # slope with no real hill-hold can push idx back out of
+                    # the zone before hold_sec elapses - if fired_once only
+                    # got set on a clean completion, the next re-entry
+                    # reset _stop_hold_key/_stop_hold_done and restarted the
+                    # whole attempt, so a vehicle that can't hold still
+                    # re-triggered forever. Now it gets exactly one attempt
+                    # (up to hold_sec, however far it actually gets) and
+                    # that's it for this run, success or not.
+                    self._stop_hold_fired_once.add(key)
 
                 if not self._stop_hold_done:
                     elapsed = (
@@ -1041,7 +1052,6 @@ class ArbiterNode(Node):
                     ).nanoseconds / 1e9
                     if elapsed >= hold_sec:
                         self._stop_hold_done = True
-                        self._stop_hold_fired_once.add(key)
 
                 if not self._stop_hold_done:
                     self._send_true_deg(

@@ -216,7 +216,11 @@ def generate_launch_description():
     # (진짜 Hill_Stop, stop_mode 전환은 아직 미구현 - 그냥 타이밍만 시험).
     # '44:44:stop:3' 형식: start:end:type:hold_sec (hold_sec 있으면 그 시간
     # 지난 뒤 base_steer/base_rpm으로 자동 재개, 없으면 예전처럼 무한정지).
-    EVENT_ZONES = ["44:44:stop:3"]
+    EVENT_ZONES = [
+        "30:35:gps_priority",
+        "44:44:stop:3",
+        "65:73:gps_priority",
+    ]
     # EVENT_ZONES = [""]
     # EVENT_ZONES = [
     #     "10:29:traffic_light:18",

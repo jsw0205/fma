@@ -98,7 +98,12 @@ class WaypointFollowerNode(Node):
         self.declare_parameter("curve_deadzone_angle_deg", 5.0)
         self.declare_parameter("curve_angle_for_min_rpm_deg", 40.0)
         self.declare_parameter("curve_lookahead_m", 6.0)
-        self.declare_parameter("curve_lead_margin", 1.5)
+        # 1.5 (from a 2026-07-30ish tuning session, "reacts too late/runs
+        # wide on corners") lowered to 1.2 on 2026-08-18 - live testing
+        # today found the opposite symptom, turning noticeably too early.
+        # See its use in stanley_control()'s docstring for what this
+        # actually scales.
+        self.declare_parameter("curve_lead_margin", 1.2)
         self.declare_parameter("wheelbase_m", 0.735)
         self.declare_parameter("drive_log_file", "")
         self.declare_parameter("min_waypoint_distance_m", 0.5)

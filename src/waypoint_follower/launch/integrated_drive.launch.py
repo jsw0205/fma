@@ -27,6 +27,10 @@ def generate_launch_description():
     # cruise value as camera_mode_rpm if that's ever tuned.
     camera_can_target_rpm_arg = DeclareLaunchArgument("camera_can_target_rpm", default_value="130")
     cruise_rpm_arg = DeclareLaunchArgument("cruise_rpm", default_value="140")
+    # 2026-08-18: see post_gps_drive.launch.py's matching comment - live
+    # field tuning, default lowered 1.5->1.2 after today's testing found
+    # the vehicle turning too early on corners.
+    curve_lead_margin_arg = DeclareLaunchArgument("curve_lead_margin", default_value="1.2")
     traffic_light_model_arg = DeclareLaunchArgument(
         "traffic_light_model",
         default_value="/home/a/ros2_ws/src/traffic_light/weights/best.pt",
@@ -76,6 +80,9 @@ def generate_launch_description():
                 LaunchConfiguration("enable_control"), value_type=bool
             ),
             "cruise_rpm": ParameterValue(LaunchConfiguration("cruise_rpm"), value_type=int),
+            "curve_lead_margin": ParameterValue(
+                LaunchConfiguration("curve_lead_margin"), value_type=float
+            ),
             "publish_can_directly": False,
         }],
     )
@@ -179,6 +186,7 @@ def generate_launch_description():
         camera_mode_rpm_arg,
         camera_can_target_rpm_arg,
         cruise_rpm_arg,
+        curve_lead_margin_arg,
         traffic_light_model_arg,
         f9p_bringup_launch,
         zed_wrapper_launch,

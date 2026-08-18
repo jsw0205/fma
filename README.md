@@ -2020,3 +2020,27 @@ Hill_Stop(언덕정지, idx 정지 + stop_mode 전환)이 아직 미구현이라
 CAN 레벨에서 stop_mode=2 동작 자체를 실차로 확인해보려는 임시 테스트.
 정지 중(hold 안 끝난 동안)만 stop_mode=2, hold_sec 없는 기존 무한정지
 zone은 그대로 stop_mode=1 유지.
+
+## 2026-08-18 (이어서): 커브 조기 꺾임 - `curve_lead_margin` 1.5→1.2, launch 인자로 노출
+
+실차 테스트 중 커브에서 너무 일찍 꺾이는 증상 발견 - Stanley의 예견
+(anticipatory) blend(`stanley_control()`의 `curve_lead_margin`,
+`required_lead_m = turning_radius_m * radians(turn_angle_deg) *
+curve_lead_margin`)가 원인으로 추정됨. 이 값은 7/30ish 세션에 "반응이
+너무 늦어서 코너 바깥으로 밀린다"는 반대 증상을 고치려고 1.1→1.5로
+올렸던 건데, 지금은 과하게 일찍 반응하는 쪽으로 넘어간 상태로 보임.
+
+- `waypoint_follower_node.py`의 `curve_lead_margin` 기본값 1.5→**1.2**로
+  낮춤
+- `integrated_drive.launch.py`/`post_gps_drive.launch.py`에 `
+  curve_lead_margin` launch 인자로 노출 - 재빌드 없이 실차에서 바로
+  튜닝 가능 (`curve_lead_margin:=1.0`, 더 낮춰보거나 `curve_lead_margin:
+  =0.0`으로 예견 blend 자체를 꺼볼 수도 있음 - 0이면 `required_lead_m`도
+  0이 돼서 무조건 blend=0, 순수 반응형 Stanley로 돌아감. 단, "코너가
+  회전반경보다 급해서 물리적으로 못 돈다"는 별도 안전장치(full-lock
+  폴백)는 이 값과 무관하게 계속 작동함)
+
+stop_mode=2(hill)는 CAN 인코딩 자체(호스트 쪽 struct.pack)는 문제없음
+재확인 - 펌웨어가 hill 모드 액추에이션을 아직 구현 안 했을 가능성이
+높음(기존에 StopHoldEnable 하나로 normal/hill 구분 못한다고 기록해둔
+내용과 일치), 펌웨어팀 확인 필요.

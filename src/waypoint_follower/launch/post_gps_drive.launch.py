@@ -40,6 +40,18 @@ def generate_launch_description():
     # comment (int("130.0") would raise, can_target_rpm is int-typed).
     camera_can_target_rpm_arg = DeclareLaunchArgument("camera_can_target_rpm", default_value="130")
     cruise_rpm_arg = DeclareLaunchArgument("cruise_rpm", default_value="140")
+    # 2026-08-18: exposed for live field tuning without a rebuild - default
+    # (1.5) unchanged from waypoint_follower_node.py's own declare_parameter
+    # default, so omitting this arg changes nothing. >1.0 = start turning
+    # earlier than the bare turning-radius-physics minimum (see
+    # stanley_control's docstring); raised 1.1->1.5 in an earlier session
+    # to fix "reacts too late, runs wide on corners" - if it's now turning
+    # too early instead, try a smaller value live, e.g.
+    # curve_lead_margin:=1.0, or curve_lead_margin:=0.0 to disable the
+    # anticipatory blend entirely (falls back to plain reactive Stanley -
+    # the "infeasible corner -> full lock" safety fallback in
+    # stanley_control still applies regardless of this value).
+    curve_lead_margin_arg = DeclareLaunchArgument("curve_lead_margin", default_value="1.2")
     traffic_light_model_arg = DeclareLaunchArgument(
         "traffic_light_model",
         default_value="/home/a/ros2_ws/src/traffic_light/weights/best.pt",
@@ -123,6 +135,9 @@ def generate_launch_description():
             # Same STRING-vs-typed trap as camera_mode_rpm - cruise_rpm is
             # declared as an int in waypoint_follower_node.
             "cruise_rpm": ParameterValue(LaunchConfiguration("cruise_rpm"), value_type=int),
+            "curve_lead_margin": ParameterValue(
+                LaunchConfiguration("curve_lead_margin"), value_type=float
+            ),
             "publish_can_directly": False,
             "loop_waypoints": ParameterValue(
                 LaunchConfiguration("loop_waypoints"), value_type=bool
@@ -307,6 +322,7 @@ def generate_launch_description():
         camera_mode_rpm_arg,
         camera_can_target_rpm_arg,
         cruise_rpm_arg,
+        curve_lead_margin_arg,
         traffic_light_model_arg,
         traffic_light_show_debug_arg,
         traffic_light_conf_threshold_arg,

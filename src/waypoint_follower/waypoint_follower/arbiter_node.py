@@ -402,15 +402,24 @@ class ArbiterNode(Node):
         if self.event_zones:
             self.get_logger().info(f"event zones: {self.event_zones}")
 
-        # Timed "stop" zone hold state - see the "stop" branch in on_timer.
-        # (A "only once this run" flag was tried and reverted 2026-08-18 -
-        # see that branch's comment - idx briefly touching a zone during
-        # startup jitter marked it done before the vehicle ever really got
-        # there, so it silently skipped the stop every time. Back to plain
-        # re-triggerable on every entry.)
-        self._stop_hold_key = None
-        self._stop_hold_start_time = None
-        self._stop_hold_done = False
+        # Timed "stop" zone hold state - see on_timer's override check +
+        # the "stop" branch. 2026-08-18 rewrite: hold_sec used to only be
+        # honored while idx stayed inside the zone (_zone_at only returns
+        # "stop" there) - at higher speed the vehicle coasted (no real
+        # firmware hill-hold yet) past a single-waypoint-wide zone in
+        # ~0.4s, far short of hold_sec=3, so the hold got cut short every
+        # time. Now purely time-based once started: _stop_hold_active_until
+        # forces the stop command every tick regardless of idx/zone until
+        # that time passes, overriding everything else in on_timer
+        # (checked first, before engaged/zone dispatch).
+        self._stop_hold_active_until = None
+        # (start, end) of the zone whose hold most recently started/
+        # finished - prevents immediately restarting a fresh hold on the
+        # same zone visit once _stop_hold_active_until expires while idx
+        # is still sitting inside it. Cleared once idx actually leaves the
+        # zone (see the reset block below), so a later revisit (next lap)
+        # starts a fresh hold again.
+        self._stop_hold_done_key = None
 
         self.camera_steer = float("nan")
         # Seeded from camera_mode_rpm (not 0.0/nan) so an early camera-
@@ -806,14 +815,24 @@ class ArbiterNode(Node):
         )
         zone_start, zone_end, zone, zone_extra = self._zone_at(self.gps_idx)
 
-        # Timed "stop" zone hold state reset - see the "stop" branch below.
-        # Cleared whenever idx isn't inside a "stop" zone at all, so a
-        # later re-entry (this zone again, or a different one) starts a
-        # fresh hold instead of remembering "already done" from last time.
+        # _stop_hold_done_key reset - see its declaration comment. Cleared
+        # once idx has actually left the "stop" zone, so a later revisit
+        # starts a fresh hold. NOT reset just because a hold finished while
+        # idx was still inside it (that's the whole point of tracking this
+        # separately from _stop_hold_active_until).
         if zone != "stop":
-            self._stop_hold_key = None
-            self._stop_hold_start_time = None
-            self._stop_hold_done = False
+            self._stop_hold_done_key = None
+
+        # Timed stop-hold override: while a hold is in progress, force the
+        # stop command every tick regardless of what zone/idx says right
+        # now (see _stop_hold_active_until's declaration comment) - this
+        # is checked first, ahead of engaged/zone dispatch below.
+        stop_holding = False
+        if self._stop_hold_active_until is not None:
+            if self.get_clock().now() < self._stop_hold_active_until:
+                stop_holding = True
+            else:
+                self._stop_hold_active_until = None
 
         # Edge-triggers /parking_start (on this zone's side only) exactly
         # once per zone entry (not every cycle - the parking node treats
@@ -1022,7 +1041,19 @@ class ArbiterNode(Node):
         # machine to CLEAR on disarm).
         self.avoid_enable_pub.publish(Bool(data=(zone == "avoid")))
 
-        if engaged_side is not None:
+        if stop_holding:
+            # Time-based hold in progress (started on an earlier tick,
+            # possibly while idx was still in the zone - doesn't matter
+            # now) - see _stop_hold_active_until's declaration comment.
+            # enable=1 (not 0): testing the hypothesis that hill-hold needs
+            # the motor actively engaged (torque against gravity, target
+            # rpm=0) rather than fully disabled/freewheeling.
+            self._send_true_deg(
+                0.0, 0.0, 1, 2, "event_zone_stop_timed",
+                f"event_zone(stop, idx={self.gps_idx}) holding (time-based, "
+                f"enable=1, stop_mode=2/hill)",
+            )
+        elif engaged_side is not None:
             # Takes priority over everything below, including a "stop"/
             # "gps_priority"/etc zone that idx may have wandered into mid-
             # maneuver - see the "engaged" comment above.
@@ -1043,53 +1074,42 @@ class ArbiterNode(Node):
                 self._send_true_deg(
                     0.0, 0.0, 0, 1, "event_zone_stop", f"event_zone(stop, idx={self.gps_idx})"
                 )
-            else:
-                # _stop_hold_fired_once ("only once this run") REVERTED
-                # 2026-08-18 - real-world test found idx briefly touching
-                # 44 early (nearest-waypoint search jitter at startup, most
-                # likely) marked it fired before the vehicle ever actually
-                # reached the zone for real, so it skipped every time,
-                # unconditionally, from the very start of the run. Back to
-                # plain re-triggerable-on-every-entry - user's call: "정지
-                # 되기만 하면 아마 상관없을 것 같음" (getting it to stop at
-                # all matters more right now than preventing repeats).
-                if self._stop_hold_key != key:
-                    self._stop_hold_key = key
-                    self._stop_hold_start_time = self.get_clock().now()
-                    self._stop_hold_done = False
-
-                if not self._stop_hold_done:
-                    elapsed = (
-                        self.get_clock().now() - self._stop_hold_start_time
-                    ).nanoseconds / 1e9
-                    if elapsed >= hold_sec:
-                        self._stop_hold_done = True
-
-                if not self._stop_hold_done:
-                    # enable=1 here (not 0) - 2026-08-18, testing the
-                    # user's hypothesis that hill-hold needs the motor
-                    # actively engaged (torque applied against gravity,
-                    # target rpm=0) rather than fully disabled/freewheeling.
-                    # rpm=0.0 still means "hold position", not "off".
-                    self._send_true_deg(
-                        0.0, 0.0, 1, 2, "event_zone_stop_timed",
-                        f"event_zone(stop, idx={self.gps_idx}) holding "
-                        f"{elapsed:.1f}/{hold_sec:.1f}s (enable=1, stop_mode=2/hill)",
-                    )
-                elif base_source is not None:
-                    # Hold's over - resume normal driving even though idx
-                    # is technically still inside [zone_start, zone_end]
-                    # (it hasn't moved while stopped). Vehicle moving again
-                    # will naturally push idx past zone_end shortly.
+            elif key == self._stop_hold_done_key:
+                # Already started (and by now finished, since stop_holding
+                # was False above) a hold for this exact zone visit - see
+                # _stop_hold_done_key's declaration comment. Don't restart,
+                # just drive through.
+                if base_source is not None:
                     self._send_true_deg(
                         base_steer, base_rpm, 1, 0, base_source,
-                        f"event_zone(stop, idx={self.gps_idx}) hold done, resuming via {base_source}",
+                        f"event_zone(stop, idx={self.gps_idx}) hold already done "
+                        f"this visit, resuming via {base_source}",
                     )
                 else:
                     self._send_true_deg(
                         0.0, 0.0, 0, 1, "safe_stop",
-                        f"event_zone(stop, idx={self.gps_idx}) hold done but no valid source to resume with",
+                        f"event_zone(stop, idx={self.gps_idx}) hold done but no "
+                        f"valid source to resume with",
                     )
+            else:
+                # First tick seeing this zone this visit - start a
+                # time-based hold that'll keep firing (via stop_holding
+                # above) for the full hold_sec regardless of idx/zone from
+                # here on, even if the vehicle coasts out of this
+                # single-waypoint-wide zone in well under hold_sec (real
+                # problem confirmed 2026-08-18: no actual firmware
+                # hill-hold yet, so the vehicle just keeps rolling under
+                # gravity/momentum and used to exit the idx range - and
+                # therefore this branch - in a fraction of a second).
+                self._stop_hold_active_until = self.get_clock().now() + Duration(
+                    seconds=hold_sec
+                )
+                self._stop_hold_done_key = key
+                self._send_true_deg(
+                    0.0, 0.0, 1, 2, "event_zone_stop_timed",
+                    f"event_zone(stop, idx={self.gps_idx}) holding started "
+                    f"({hold_sec:.1f}s, enable=1, stop_mode=2/hill)",
+                )
         elif zone == "gps_priority" and gps_ok:
             # 2026-08-16: gps_priority excludes the ZED lane-following
             # camera (so slot detection right before a parking search

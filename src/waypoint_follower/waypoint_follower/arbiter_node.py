@@ -396,6 +396,14 @@ class ArbiterNode(Node):
         self._stop_hold_key = None
         self._stop_hold_start_time = None
         self._stop_hold_done = False
+        # Zones (start, end) that have already completed a timed hold once
+        # this run - permanent, NOT reset when idx leaves the zone (unlike
+        # the three above). 2026-08-18: without this, a stop on a slope
+        # with no real hill-hold (stop_mode=2 not yet actuated by firmware
+        # - see README) rolls the vehicle, GPS idx drifts back into the
+        # same zone, and it re-triggers forever. Once a zone's hold
+        # actually completes, it's done for the rest of this run.
+        self._stop_hold_fired_once = set()
 
         self.camera_steer = float("nan")
         # Seeded from camera_mode_rpm (not 0.0/nan) so an early camera-
@@ -999,12 +1007,29 @@ class ArbiterNode(Node):
             # variant), but close enough to test the CAN-level behavior
             # per the user's call, 2026-08-18.
             hold_sec = zone_extra
+            key = (zone_start, zone_end)
             if hold_sec is None:
                 self._send_true_deg(
                     0.0, 0.0, 0, 1, "event_zone_stop", f"event_zone(stop, idx={self.gps_idx})"
                 )
+            elif key in self._stop_hold_fired_once:
+                # Already held once this run - see _stop_hold_fired_once's
+                # declaration comment (rolling on a slope with no real
+                # hill-hold re-triggers the same zone otherwise). Drive
+                # straight through as if this zone weren't here at all.
+                if base_source is not None:
+                    self._send_true_deg(
+                        base_steer, base_rpm, 1, 0, base_source,
+                        f"event_zone(stop, idx={self.gps_idx}) already held once "
+                        f"this run - skipping",
+                    )
+                else:
+                    self._send_true_deg(
+                        0.0, 0.0, 0, 1, "safe_stop",
+                        f"event_zone(stop, idx={self.gps_idx}) already held once "
+                        f"but no valid source to drive through with",
+                    )
             else:
-                key = (zone_start, zone_end)
                 if self._stop_hold_key != key:
                     self._stop_hold_key = key
                     self._stop_hold_start_time = self.get_clock().now()
@@ -1016,6 +1041,7 @@ class ArbiterNode(Node):
                     ).nanoseconds / 1e9
                     if elapsed >= hold_sec:
                         self._stop_hold_done = True
+                        self._stop_hold_fired_once.add(key)
 
                 if not self._stop_hold_done:
                     self._send_true_deg(

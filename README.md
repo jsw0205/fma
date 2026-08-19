@@ -2193,3 +2193,27 @@ zone을 벗어나야 리셋되어 다음 방문(다음 랩) 때 다시 작동.
 제동으로 이어지는지는 별개 문제 (펌웨어 hill-hold 미구현, 별도 확인
 필요) - 이번 수정은 "호스트가 최소 3초는 확실히 그 명령을 계속
 보낸다"는 것만 보장함.
+
+## 2026-08-19: `gps_quality_monitor` 노드 추가 (EMI 테스트용 실시간 GPS 품질 모니터)
+
+**배경**: ZED 카메라 전원만 넣어도(코드 안 돌려도), 심지어 GPS랑 완전히
+분리된 다른 노트북에서 테스트해도 GPS Fixed에 영향이 간다는 게 확인됨
+(2026-08-18 밤, 노트북 2대로 분리 테스트) - 기존에 알던 "USB3 케이블
+근접 커플링" 모델만으론 설명 안 되는 **방사(radiated) EMI** 가능성.
+코드 실행(실제 스트리밍) 시 영향이 더 심해짐 - 대기전력 노이즈 +
+활동량 비례 노이즈 둘 다 있는 걸로 보임. 그런데 테스트 당시 "무슨 값이
+0.0001에 들어와야 fixed"라는 관찰이 있었는데 정확히 어떤 지표를 보고
+있었는지 사후에 특정 불가능했음(모니터링을 명확히 안 하고 있었음).
+
+**해결**: `gps_quality_monitor` 노드 신설
+(`waypoint_follower/gps_quality_monitor.py`, `ros2 run waypoint_follower
+gps_quality_monitor`) - `/navpvt`(carrSoln, h_acc, pDOP, numSV)와
+`/monhw`(jam_ind, jamming_state, noise_per_ms)를 한 줄에 라벨 붙여서
+0.5초마다 출력. 필드명 정정: 이 ROS2 빌드의 `ublox_msgs/NavPVT`는
+camelCase(`hAcc`)가 아니라 snake_case(`h_acc`, mm 단위) - 문서 찾다가
+확인함. 앞으로 EMI 격리 테스트(전원만 vs 스트리밍, 카메라-안테나 거리
+등) 할 때 이거 하나 띄워두면 어떤 값을 보고 있었는지 헷갈릴 일 없음.
+
+패키지 의존성: `waypoint_follower/package.xml`에 `ublox_msgs` 추가.
+아직 실제 EMI 테스트에 써보진 않음 - 다음에 카메라 전원 on/off 반복하며
+`jamming_state`/`h_acc` 변화 직접 확인해보면 좋을 것 같음.

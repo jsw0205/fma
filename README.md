@@ -2217,3 +2217,22 @@ camelCase(`hAcc`)가 아니라 snake_case(`h_acc`, mm 단위) - 문서 찾다가
 패키지 의존성: `waypoint_follower/package.xml`에 `ublox_msgs` 추가.
 아직 실제 EMI 테스트에 써보진 않음 - 다음에 카메라 전원 on/off 반복하며
 `jamming_state`/`h_acc` 변화 직접 확인해보면 좋을 것 같음.
+
+## 2026-08-19: 인수인계 패키지 (`HANDOFF/` 폴더) 작성
+
+프로젝트 인수인계를 위해 `~/ros2_ws/HANDOFF/`에 주제별로 정리된 문서
+8개 + `henes_can.dbc` 사본 작성함. 이 `README.md`(세션별 연대기 로그)는
+"왜 이렇게 했는지" 상세 기록용으로 그대로 유지하고, `HANDOFF/`는 "지금
+상태가 어떤지" 스냅샷 — 새로 맡는 사람(사람이든 AI든)이 처음부터 여기
+읽으면 됨. `HANDOFF/00_START_HERE.md`가 진입점.
+
+구성: 00_START_HERE(개요+읽는 순서), 01_ARCHITECTURE(시스템 구조+제어
+우선순위), 02_HOW_TO_RUN(실행 명령어 전부), 03_TROUBLESHOOTING(겪은
+문제+해결법), 04_PARAMETERS_REFERENCE(튜닝 파라미터 전체),
+05_CAN_PROTOCOL(CAN 메시지 상세, README_CAN_PROTOCOL.md보다 최신 상태
+반영), 06_KNOWN_LIMITATIONS_TODO(미해결 항목 우선순위), 07_FILE_MAP
+(패키지별 파일 설명).
+
+이 `HANDOFF/` 폴더는 2026-08-19 기준 스냅샷이라 그 이후 변경사항은 이
+`README.md`(세션 로그)에서 계속 찾아야 함 - `HANDOFF/` 폴더도 주기적으로
+최신화 필요.

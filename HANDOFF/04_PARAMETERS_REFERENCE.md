@@ -39,7 +39,9 @@
 | `curve_angle_for_min_rpm_deg` | 40.0 | 이 각도(경로 커버쳐, **조향각 아님**) 이상이면 `min_curve_rpm`으로 평평 |
 | `curve_lookahead_m` | 6.0 | 커브 감지 거리 (rpm 감속용 + Stanley 예견 blend 둘 다 이 값 공유) |
 | `curve_lead_margin` | **1.2** (2026-08-18, 1.1→1.5→1.2로 조정됨) | 코너 예견 반응 배율. >1.0=물리적 최소거리보다 일찍 꺾기 시작. 크면 일찍 꺾음(너무 크면 조기꺾임), 작으면 늦게 반응(너무 작으면 바깥으로 밀림) |
-| `heading_lookback_m` | 0.15 | 헤딩 추정용 위치 baseline 거리 — **짧아서 정지 중 GPS jitter가 헤딩 노이즈로 증폭되는 원인으로 의심됨** (미해결, `06_KNOWN_LIMITATIONS_TODO.md`) |
+| `heading_lookback_m` | 0.15 | 헤딩 추정 최소 baseline 거리 — 이 이상 움직여야 헤딩 갱신 |
+| `heading_buffer_window_mult` | **5.0** (2026-08-19 신규) | `heading_lookback_m`의 몇 배까지 계속 점을 모아 거리가중 버퍼로 헤딩 계산할지. 1.0=예전 방식(점 2~3개만), 클수록 노이즈에 강함(시뮬레이션: 5.0이면 노이즈 표준편차 ~3.5배 감소) |
+| `heading_correction_alpha` | 1.0(기존과 동일, 미조정) | GPS 헤딩을 `self.yaw`에 반영하는 EMA 강도 — 1.0=예전처럼 매번 완전히 덮어씀, 작을수록 부드럽게 수렴. `IMU가 실제로 배선 안 돼있음`(아래 참고)이 확인돼서 이게 사실상 유일한 헤딩 안정화 수단 |
 | `lowpass_fc_hz` / `lowpass_fs_hz` | 2.0 / 10.0 | 위치+조향 EMA 필터 컷오프/샘플레이트. **`lowpass_fs_hz=10`이 실제 루프(`control_rate_hz=20`)랑 안 맞아서 의도한 2Hz가 아니라 실제로는 ~4Hz로 동작 중 — 버그로 의심되나 미수정** |
 | `gps_outlier_threshold_m` / `_streak_accept` | 3.0 / 3 | GPS 이상치 거부 |
 | `min_waypoint_distance_m` | 0.5 | 웨이포인트 로드 시 최소 간격 필터 |

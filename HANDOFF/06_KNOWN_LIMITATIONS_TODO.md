@@ -2,6 +2,19 @@
 
 우선순위 대충 순서대로.
 
+## 0. IMU가 GPS 헤딩 융합에 실제로 안 쓰이고 있음 (2026-08-19 발견)
+
+`post_gps_drive.launch.py`가 띄우는 IMU는 `mrpt_sensor_imu_taobotics`
+(시스템 apt 패키지, 우리 `handsfree_ros2_imu` 아님) - `obstacle_avoid_
+node`/`parking_bridge`만 이걸 씀. `waypoint_follower_node`의 `imu_topic`
+/`mag_topic`(기본 `/handsfree/imu`/`/handsfree/mag`)엔 아무도 publish를
+안 해서 `on_imu()`/`on_mag()`가 안 불림 - GPS 헤딩 융합이 자이로/지자기
+보강 없이 순수 GPS 움직임만으로 돌아가고 있었음. 항목 4의 헤딩노이즈
+문제의 근본 원인 중 하나. 정식으로 고치려면 `waypoint_follower_node`의
+`imu_topic`을 `mrpt_sensor_imu_taobotics`가 실제로 publish하는 토픽에
+맞춰 리맵해야 함(단 지자기는 이 드라이버가 아예 안 줄 수 있음, 확인
+필요) - 지금은 항목 4의 GPS-only 버퍼링 개선으로 우회함.
+
 ## 1. 언덕정지(hill-hold) — 펌웨어 미구현, 실차로 확인됨
 
 `stop_mode=2` + `enable=1`을 CAN에 정상적으로 보내는 것까진 확인됨
@@ -33,15 +46,25 @@ fs=10Hz`로 계산되는데 실제 루프는 20Hz라, 의도한 2Hz 컷오프가
 사용자 판단 필요해서 보류함. 고치려면
 `waypoint_follower_node.py`의 `lowpass_fs_hz` 기본값을 20.0으로.
 
-## 4. 정지 상태에서 조향 풀락 오실레이션 (heading_lookback_m 관련)
+## 4. 헤딩 노이즈로 인한 조향 풀락 오실레이션 — **수정함(2026-08-19), 실차 미검증**
 
-차가 거의 안 움직일 때(speed≈0) `heading_lookback_m=0.15m`짜리 짧은
-baseline이 GPS jitter를 헤딩 오차로 증폭시켜서 조향이 ±14.3° 사이를
-왔다갔다하는 현상 실차에서 확인됨(2026-08-18). 이건 카메라가 실제로
-운전 중이면 CAN엔 안 나가서(Stanley 배경계산일 뿐) 무해하지만, GPS가
-실제로 운전 중이거나 정지 hold 직후 재개 시점엔 실제로 영향 줄 수 있음.
-**미수정** — `heading_lookback_m`을 늘리거나 저속에서 헤딩 업데이트
-자체를 멈추는 식의 수정이 필요해 보임.
+차가 거의 안 움직일 때뿐 아니라 일반 주행 중에도 `heading_lookback_m
+=0.15m`짜리 짧은 baseline이 GPS jitter를 헤딩 오차로 증폭시켜서 조향이
+±14.3° 사이를 왔다갔다하는 현상 실차 CAN 로그로 확인됨(2026-08-18,
+`cross_track_error_m`은 0.1~0.4m로 작았는데 steer는 풀락 - Stanley의
+횡오차 항으론 설명 안 되고 헤딩오차 항이 원인으로 확인).
+
+**추가로 확인된 사실**: IMU가 실제로 배선 안 돼있었음 - `mrpt_sensor_
+imu_taobotics`(obstacle_avoid_node/parking_bridge용)만 떠있고,
+`waypoint_follower_node`의 `imu_topic`/`mag_topic`엔 아무도 publish 안
+해서 `self.yaw`가 자이로/지자기 보강 전혀 없이 순수 GPS 헤딩만으로
+결정돼 있었음.
+
+**수정**: (1) `heading_correction_alpha`로 GPS 헤딩 반영을 하드
+덮어쓰기에서 EMA 블렌딩으로 변경 (2) `_smoothed_heading()`을 거리가중
+버퍼(`heading_buffer_window_mult`)로 재작성 - 시뮬레이션상 노이즈
+표준편차 ~3.5배 감소. `04_PARAMETERS_REFERENCE.md` 참고. **실차 테스트
+아직 안 함** - 다음 주행 때 확인 필요.
 
 ## 5. `gps_priority` 존 idx 경계 폭 — 튜닝 진행 중
 

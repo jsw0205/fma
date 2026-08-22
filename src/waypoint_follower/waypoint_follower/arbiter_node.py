@@ -288,6 +288,21 @@ class ArbiterNode(Node):
         # (pure GPS-only zone, no red-light gating) without deleting that
         # fix - flip back to true once OAK-D is actually in the loop.
         self.declare_parameter("gps_priority_check_traffic_light", True)
+        # 2026-08-19: settle-in blend for entering gps_priority/
+        # gps_priority_slow - see _gps_priority_settled_steer(). Separate
+        # from (and stacked on top of) _filtered_gps_steer's ongoing EMA -
+        # that one smooths self.gps_steer's own noise continuously, but
+        # doesn't know or care what was actually being sent right before
+        # entry (often camera, a completely different value/source). This
+        # blends FROM whatever was last actually sent TOWARD the target
+        # over gps_priority_settle_sec, using a slower alpha than the
+        # steady-state filter, so the transition itself is smooth even if
+        # the underlying gps_steer had drifted wildly while camera was
+        # driving (confirmed real via CAN log, see README's 2026-08-19
+        # session notes). settle_sec<=0 disables this (falls straight
+        # through to _filtered_gps_steer, old behavior).
+        self.declare_parameter("gps_priority_settle_sec", 2.0)
+        self.declare_parameter("gps_priority_settle_alpha", 0.15)
         # traffic_light package (traffic_light_node): publishes GO/STOP on
         # this topic from OAK-D + YOLO red-light detection. Only consulted
         # inside "traffic_light" event zones - end idx of the zone is
@@ -436,6 +451,15 @@ class ArbiterNode(Node):
         self.gps_steer = 0.0
         self._filtered_gps_steer = None  # see on_timer's filter block
         self.gps_rpm = 0.0
+        # Last steer value actually sent via _send_true_deg, regardless of
+        # source/category - see _gps_priority_settled_steer()'s use of this
+        # as the settle-in blend's starting point.
+        self._last_sent_steer = 0.0
+        # gps_priority[_slow] settle-in state - see
+        # gps_priority_settle_sec's declaration comment above.
+        self._gps_priority_settle_zone_kind = None
+        self._gps_priority_settle_start_time = None
+        self._gps_priority_settle_value = None
         self.gps_idx = 0
         self.gps_valid = False
         self.gps_last_time = None
@@ -823,6 +847,14 @@ class ArbiterNode(Node):
         if zone != "stop":
             self._stop_hold_done_key = None
 
+        # gps_priority/gps_priority_slow settle-in state reset - cleared
+        # only when leaving BOTH zone kinds (switching between the two
+        # doesn't reset the clock, see _gps_priority_settled_steer).
+        if zone not in ("gps_priority", "gps_priority_slow"):
+            self._gps_priority_settle_zone_kind = None
+            self._gps_priority_settle_start_time = None
+            self._gps_priority_settle_value = None
+
         # Timed stop-hold override: while a hold is in progress, force the
         # stop command every tick regardless of what zone/idx says right
         # now (see _stop_hold_active_until's declaration comment) - this
@@ -1122,15 +1154,16 @@ class ArbiterNode(Node):
             # concept here (unlike "traffic_light" zones), so red just
             # means a full stop for as long as it's red, not a graceful
             # approach-and-stop-at-line.
+            settled_steer = self._gps_priority_settled_steer("gps_priority")
             check_light = self.get_parameter("gps_priority_check_traffic_light").value
             if check_light and self._traffic_light_is_red():
                 self._send_true_deg(
-                    self._filtered_gps_steer, 0.0, 0, 1, "event_zone_gps_priority_red",
+                    settled_steer, 0.0, 0, 1, "event_zone_gps_priority_red",
                     f"event_zone(gps_priority, idx={self.gps_idx}) RED - stopped",
                 )
             else:
                 self._send_true_deg(
-                    self._filtered_gps_steer, self._parking_ramped_rpm(self.gps_rpm), 1, 0,
+                    settled_steer, self._parking_ramped_rpm(self.gps_rpm), 1, 0,
                     "event_zone_gps_priority",
                     f"event_zone(gps_priority, idx={self.gps_idx})",
                 )
@@ -1143,15 +1176,16 @@ class ArbiterNode(Node):
                 self._parking_ramped_rpm(self.gps_rpm),
                 self.get_parameter("gps_priority_slow_rpm").value,
             )
+            settled_steer = self._gps_priority_settled_steer("gps_priority_slow")
             check_light = self.get_parameter("gps_priority_check_traffic_light").value
             if check_light and self._traffic_light_is_red():
                 self._send_true_deg(
-                    self._filtered_gps_steer, 0.0, 0, 1, "event_zone_gps_priority_slow_red",
+                    settled_steer, 0.0, 0, 1, "event_zone_gps_priority_slow_red",
                     f"event_zone(gps_priority_slow, idx={self.gps_idx}) RED - stopped",
                 )
             else:
                 self._send_true_deg(
-                    self._filtered_gps_steer, slow_rpm, 1, 0,
+                    settled_steer, slow_rpm, 1, 0,
                     "event_zone_gps_priority_slow",
                     f"event_zone(gps_priority_slow, idx={self.gps_idx})",
                 )
@@ -1253,6 +1287,47 @@ class ArbiterNode(Node):
             self._send_true_deg(base_steer, base_rpm, 1, 0, base_source)
         else:
             self._send_true_deg(0.0, 0.0, 0, 1, "safe_stop", "none(safe-stop)")
+
+    def _gps_priority_settled_steer(self, zone_kind):
+        """Settle-in blend for entering "gps_priority"/"gps_priority_slow" -
+        see gps_priority_settle_sec's declaration comment for why this
+        exists separately from _filtered_gps_steer's own ongoing EMA.
+
+        On the first call after switching INTO this zone_kind (from a
+        different zone_kind, or from not being in either), seeds the blend
+        from self._last_sent_steer (whatever was actually being sent right
+        before - often camera's steer, a different source/value entirely)
+        and starts a settle_sec-long clock. While that clock is running,
+        blends toward _filtered_gps_steer using gps_priority_settle_alpha
+        (slower than the steady-state base_steer_lowpass_alpha). Once
+        settle_sec has elapsed, just returns _filtered_gps_steer directly.
+
+        Call once per tick from whichever of the two zone branches is
+        active (they share this settle state - switching between
+        gps_priority and gps_priority_slow does NOT reset the clock, only
+        actually leaving both zone kinds does - see on_timer's reset
+        block)."""
+        settle_sec = self.get_parameter("gps_priority_settle_sec").value
+        target = self._filtered_gps_steer
+        if settle_sec <= 0:
+            return target
+
+        now = self.get_clock().now()
+        if self._gps_priority_settle_zone_kind != zone_kind:
+            self._gps_priority_settle_zone_kind = zone_kind
+            self._gps_priority_settle_start_time = now
+            self._gps_priority_settle_value = self._last_sent_steer
+
+        elapsed = (now - self._gps_priority_settle_start_time).nanoseconds / 1e9
+        if elapsed >= settle_sec:
+            self._gps_priority_settle_value = target
+            return target
+
+        settle_alpha = self.get_parameter("gps_priority_settle_alpha").value
+        self._gps_priority_settle_value = (
+            settle_alpha * target + (1.0 - settle_alpha) * self._gps_priority_settle_value
+        )
+        return self._gps_priority_settle_value
 
     def _parking_ramped_rpm(self, raw_rpm):
         """Blend raw_rpm toward a not-yet-active parking zone's approach_rpm
@@ -1382,6 +1457,7 @@ class ArbiterNode(Node):
     def _send_true_deg(self, steer, rpm, enable, stop_mode, category, detail=None):
         steer_limit = self.get_parameter("steer_limit_deg").value
         steer = max(-steer_limit, min(steer_limit, steer))
+        self._last_sent_steer = steer
 
         if self.bus is not None:
             can_driver.send_control_true_deg(self.bus, rpm, steer, enable, stop_mode)

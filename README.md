@@ -2236,3 +2236,26 @@ camelCase(`hAcc`)가 아니라 snake_case(`h_acc`, mm 단위) - 문서 찾다가
 이 `HANDOFF/` 폴더는 2026-08-19 기준 스냅샷이라 그 이후 변경사항은 이
 `README.md`(세션 로그)에서 계속 찾아야 함 - `HANDOFF/` 폴더도 주기적으로
 최신화 필요.
+
+## 2026-08-19 (이어서): gps_priority 진입 시 정착(settle-in) 블렌딩 추가
+
+실차 로그로 원인 확인: `gps_priority` 진입 직전 5초+ 동안 카메라가
+몰고 있었고, 그동안 GPS(Stanley)는 실제로 운전 안 하면서 "카메라가
+끌고 간 궤적"을 보고 배경 계산만 계속 하고 있었음 - 그 계산이 실제
+피드백 루프 없이 방치돼서 값이 불안정해지고, `gps_priority` 진입
+순간 그 값이 처음 실제로 CAN에 실리면서 풀락 스윙으로 나타난 것.
+GPS-only로 쭉 달릴 때는 계산-실제결과가 계속 맞물려있어서 이 문제가
+없음(자연스러운 피드백 안정화).
+
+**해결**: `_gps_priority_settled_steer()` 추가 - `gps_priority`/
+`gps_priority_slow` 진입 시, 그 직전에 **실제로 나가고 있던 값**
+(`_last_sent_steer`, 보통 카메라 값)에서 시작해서, `gps_priority_settle_sec`
+(기본 2.0초) 동안 `gps_priority_settle_alpha`(기본 0.15, 평소
+`base_steer_lowpass_alpha`보다 훨씬 느림)로 목표값(`_filtered_gps_steer`)
+쪽으로 서서히 블렌딩. settle_sec 지나면 평소처럼 `_filtered_gps_steer`
+그대로 씀. `gps_priority`↔`gps_priority_slow` 전환은 같은 정착 상태
+유지(리셋 안 됨), 두 zone 다 벗어나야 리셋. `settle_sec<=0`이면 이 기능
+자체가 꺼짐(기존 동작).
+
+시뮬레이션 확인: -14.3°에서 시작해도 2초 안에 목표값(+5° 가정) 근처로
+수렴함. 아직 실차 테스트 안 함.

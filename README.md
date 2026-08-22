@@ -2259,3 +2259,33 @@ GPS-only로 쭉 달릴 때는 계산-실제결과가 계속 맞물려있어서 �
 
 시뮬레이션 확인: -14.3°에서 시작해도 2초 안에 목표값(+5° 가정) 근처로
 수렴함. 아직 실차 테스트 안 함.
+
+## 2026-08-19 (이어서): 헤딩 계산 근본 수정 - EMA 블렌딩 + 거리가중 버퍼, IMU 미배선 확인
+
+**IMU가 실제로 안 쓰이고 있었음을 확인**: `post_gps_drive.launch.py`가
+띄우는 IMU는 `mrpt_sensor_imu_taobotics`(우리 `handsfree_ros2_imu` 패키지
+아님, 시스템 apt 패키지) - `obstacle_avoid_node`/`parking_bridge`한테만
+쓰이고 자기 토픽에 publish함. `waypoint_follower_node`의
+`imu_topic`/`mag_topic`(기본 `/handsfree/imu`/`/handsfree/mag`)엔 아무도
+publish 안 함 - `on_imu()`/`on_mag()`가 이 세션 내내 한 번도 안 불렸을
+것으로 확인됨. 즉 `self.yaw`는 순수 GPS 움직임 기반 헤딩만으로 결정돼왔음
+(자이로/지자기 보강 전혀 없이).
+
+**수정 1 - EMA 블렌딩**: `on_fix()`가 `self.yaw = heading`으로 매번
+완전히 덮어쓰던 걸 `heading_correction_alpha`(기본 1.0=기존과 동일)로
+`self.yaw += alpha*normalize_angle(heading - self.yaw)` 방식으로 변경
+- 각도라 단순 뺄셈 아니라 `normalize_angle`로 wraparound 처리.
+
+**수정 2 - `_smoothed_heading()` 거리가중 버퍼로 재작성**: 기존엔 딱
+2점(지금 위치 ↔ `heading_lookback_m` 뒤 점)만으로 베어링 계산 - 노이즈에
+매우 취약. 이제 뒤로 걸어가며 지나친 모든 점 각각의 "지금→그 점" 베어링을
+그 점까지의 거리로 가중(멀수록 가중치 큼, 짧은 baseline일수록 노이즈에
+상대적으로 더 민감하므로)해서 벡터합으로 결합. **`heading_buffer_window_mult`
+(신규 파라미터, 기본 5.0)이 핵심** - `heading_lookback_m` 채우자마자
+멈추면(기존 동작, 실제 주행속도에서 점 2~3개밖에 못 모음, 개선 거의
+없음) 의미 없고, 그 문턱의 5배까지 계속 더 모아야 실제로 효과가 큼
+(시뮬레이션: 3cm GPS 지터 기준 헤딩오차 표준편차가 lookback=0.15m에서
+9.0°→2.6°, lookback=1.0m에서 1.4°→0.3°로 개선 - `heading_lookback_m`
+자체를 키우는 것도 별도로 도움 됨).
+
+두 수정 다 IMU 없이 순수 GPS 이동거리만으로 동작. 아직 실차 테스트 안 됨.

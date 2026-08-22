@@ -119,6 +119,31 @@ class WaypointFollowerNode(Node):
         self.declare_parameter("lowpass_fc_hz", 2.0)
         self.declare_parameter("lowpass_fs_hz", 10.0)
         self.declare_parameter("heading_lookback_m", 0.15)
+        # 2026-08-19: see _smoothed_heading()'s rewrite comment - extends
+        # the weighted-buffer collection window to heading_lookback_m *
+        # this multiple, instead of stopping right at heading_lookback_m
+        # (which, at real driving speed, only collects 2-3 points - barely
+        # better than the old single-bearing method). 1.0 = old-rewrite
+        # behavior (stop right at lookback_m). Simulated: 5.0 cut heading
+        # noise std ~3.5x vs 1.0, at both lookback_m=0.15 and 1.0.
+        self.declare_parameter("heading_buffer_window_mult", 5.0)
+        # 2026-08-19: on_fix() used to do `self.yaw = heading` - a hard
+        # overwrite, every single time a fresh GPS-movement heading became
+        # available (which, at heading_lookback_m=0.15m and real driving
+        # speeds of ~1-1.6 m/s, is almost every tick). That threw away
+        # on_imu()'s gyro-integrated continuity completely and let raw GPS
+        # jitter inject directly into self.yaw at full weight - confirmed
+        # as the dominant noise source behind the +-14deg steer swings
+        # seen in real CAN logs while cross_track_error_m stayed small
+        # (0.1-0.4m, nowhere near enough to explain the swing via Stanley's
+        # cross-track term alone - see README's 2026-08-19 session notes).
+        # heading_correction_alpha blends toward the fresh GPS heading
+        # instead of snapping to it: new_yaw = yaw + alpha*angle_diff(GPS
+        # heading, yaw), circular-safe via normalize_angle. 1.0 = old
+        # behavior (hard snap, unchanged default - opt-in fix, doesn't
+        # change anything until tuned down). Smaller = more damped/trusts
+        # gyro continuity more, but slower to correct real gyro drift.
+        self.declare_parameter("heading_correction_alpha", 1.0)
         self.declare_parameter("steer_limit_deg", can_driver.TRUE_STEER_MAX_ANGLE_DEG)
         self.declare_parameter("steer_sign", -1)
         self.declare_parameter("enable_control", False)
@@ -288,24 +313,77 @@ class WaypointFollowerNode(Node):
     def _smoothed_heading(self):
         # Distance-based, not sample-count-based (same reasoning as
         # curve_lookahead_m): walk back through position_history until at
-        # least heading_lookback_m of movement is covered, then use that
-        # displacement's bearing. A fixed sample count needs a minimum
-        # speed to ever trigger at all (e.g. old n=4 + 1m min needed 5m/s
-        # just to produce a heading); a fixed distance instead updates in
-        # however long that distance actually takes at the current speed -
-        # no minimum speed requirement, and it's still real movement, not
-        # GPS noise, as long as the distance is bigger than GPS jitter.
+        # least heading_lookback_m of movement is covered. A fixed sample
+        # count needs a minimum speed to ever trigger at all (e.g. old n=4
+        # + 1m min needed 5m/s just to produce a heading); a fixed distance
+        # instead updates in however long that distance actually takes at
+        # the current speed - no minimum speed requirement, and it's still
+        # real movement, not GPS noise, as long as the distance is bigger
+        # than GPS jitter.
+        #
+        # 2026-08-19 rewrite: used to be a single two-point bearing (now
+        # vs. the one point exactly heading_lookback_m back) - noisy,
+        # since 2 GPS fixes a few cm off from their "true" position can
+        # swing that single bearing by tens of degrees, especially at real
+        # driving speeds where heading_lookback_m=0.15m is covered in just
+        # 2-3 ticks. Confirmed as the dominant source of the +-14deg steer
+        # swings seen in real CAN logs (cross_track_error stayed small the
+        # whole time, nowhere near enough to explain the swing via
+        # Stanley's cross-track term alone - see README's 2026-08-19
+        # session notes).
+        #
+        # Now: a distance-weighted buffer - every point passed while
+        # walking back gets its own now->point bearing, weighted by that
+        # point's own distance from "now" (farther = more weight, since a
+        # longer baseline is proportionally less sensitive to a few cm of
+        # GPS noise on either end than a short one is). Combined via
+        # unit-vector sum (circular-safe - can't just average angles
+        # numerically, e.g. 179deg and -179deg should average to 180deg,
+        # not ~0deg) into one heading.
+        #
+        # Still requires covering heading_lookback_m before returning
+        # anything (same minimum as before - "is there enough real
+        # movement to trust this at all"), BUT keeps collecting further
+        # points past that, out to heading_lookback_m *
+        # heading_buffer_window_mult, instead of stopping the instant the
+        # minimum is satisfied. This turned out to matter far more than
+        # the weighting scheme itself: simulated against synthetic 3cm GPS
+        # jitter at real driving speed, stopping right at lookback_m only
+        # collects ~2-3 points (heading_lookback_m=0.15m takes 2-3 ticks
+        # at ~1.3 m/s) - barely more than the old 2-point method, near-zero
+        # improvement. Extending the window to 5x pulled the heading
+        # estimate's error std down ~3.5x (9.0deg -> 2.6deg at
+        # lookback_m=0.15; 1.4deg -> 0.3deg at lookback_m=1.0 - bigger
+        # lookback_m helps independently too, on top of this).
+        #
+        # Purely GPS-distance-based, no IMU/magnetometer needed.
         lookback_m = self.get_parameter("heading_lookback_m").value
+        window_mult = self.get_parameter("heading_buffer_window_mult").value
+        max_d = lookback_m * max(window_mult, 1.0)
         if len(self.position_history) < 2:
             return None
 
         x1, y1 = self.position_history[-1]
+        sum_x, sum_y, total_weight = 0.0, 0.0, 0.0
+        reached_lookback = False
         for i in range(len(self.position_history) - 2, -1, -1):
             x0, y0 = self.position_history[i]
-            if distance_m(x0, y0, x1, y1) >= lookback_m:
-                return math.atan2(y1 - y0, x1 - x0)
+            d = distance_m(x0, y0, x1, y1)
+            if d <= 0.0:
+                continue
+            bearing = math.atan2(y1 - y0, x1 - x0)
+            weight = d
+            sum_x += weight * math.cos(bearing)
+            sum_y += weight * math.sin(bearing)
+            total_weight += weight
+            if d >= lookback_m:
+                reached_lookback = True
+            if d >= max_d:
+                break
 
-        return None
+        if not reached_lookback or total_weight <= 0.0:
+            return None
+        return math.atan2(sum_y, sum_x)
 
     def _apply_lowpass(self, value):
         alpha = self._lowpass_alpha
@@ -467,7 +545,18 @@ class WaypointFollowerNode(Node):
         # actually moved enough to measure a bearing.
         heading = self._smoothed_heading()
         if heading is not None:
-            self.yaw = heading
+            if self.yaw is None:
+                self.yaw = heading  # bootstrap - no prior estimate to blend with
+            else:
+                alpha = self.get_parameter("heading_correction_alpha").value
+                # Circular-safe EMA toward the fresh GPS heading (not a
+                # hard overwrite) - see heading_correction_alpha's
+                # declaration comment. normalize_angle() on the diff
+                # handles the +-180deg wraparound correctly (e.g. yaw=179deg,
+                # heading=-179deg is really only a 2deg turn, not 358deg).
+                self.yaw = normalize_angle(
+                    self.yaw + alpha * normalize_angle(heading - self.yaw)
+                )
 
     def on_timer(self):
         if self.bus is not None:

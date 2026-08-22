@@ -85,6 +85,7 @@ baseline이 GPS jitter를 헤딩 오차로 증폭시켜서 조향이 ±14.3° �
 ## 완료된 것 (참고용, 재작업 불필요)
 
 - `base_steer_lowpass_alpha` 필터 (평상주행 + `gps_priority`류 둘 다 적용됨)
+- `gps_priority`/`gps_priority_slow` 진입 시 정착(settle-in) 블렌딩 (`gps_priority_settle_sec`/`_alpha`) — **아직 실차 미검증**, 다음 테스트 때 확인 필요
 - `curve_deadzone_angle_deg` (커브감속 데드존)
 - 타이밍 정지(`stop:hold_sec`)를 순수 시간기반으로 재작성 (idx 벗어나도 hold_sec 다 채움)
 - `0x204 GPS_NAV_STATUS` CAN 메시지 신설

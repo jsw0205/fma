@@ -20,6 +20,8 @@
 | `camera_mode_rpm` | 100.0 (코드) / 130.0 (launch 기본) | **폴백 seed 값** — 실제로는 `camera_rpm_topic`(`~/rpm_target`)의 실측값을 씀 (2026-08-17부터) |
 | `gps_priority_slow_rpm` | 80.0 | `gps_priority_slow` 존 속도 상한 |
 | `gps_priority_check_traffic_light` | True(코드) / False(`post_gps_drive.launch.py` 기본) | OAK-D 없이 테스트할 땐 false로 — true면 신호등 미확인 시 fail-safe로 무조건 정지해버림 |
+| `gps_priority_settle_sec` | 2.0 | **(2026-08-19 신규)** `gps_priority`/`gps_priority_slow` 진입 시 정착 블렌딩 지속시간. 0 이하면 기능 꺼짐 |
+| `gps_priority_settle_alpha` | 0.15 | 정착 구간 동안의 블렌딩 세기(`base_steer_lowpass_alpha`보다 훨씬 느림) — 진입 직전 실제로 나가던 값에서 목표값까지 이 alpha로 서서히 수렴. 아직 실차 미검증 |
 | `cruise_rpm`(waypoint_follower 쪽 값 참고) | - | GPS 순항 rpm은 `waypoint_follower_node`에 있음 (아래) |
 | `event_zones` | `[""]` | 이벤트존 정의 리스트. `[]`(진짜 빈 리스트) 쓰면 파라미터 타입 추론 깨짐 — 꼭 `[""]` |
 | `can_channel` | "can0" | |

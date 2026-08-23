@@ -35,6 +35,7 @@ setup(
             "mag_calibrate = waypoint_follower.mag_calibrate:main",
             "status_monitor_node = waypoint_follower.status_monitor_node:main",
             "gps_quality_monitor = waypoint_follower.gps_quality_monitor:main",
+            "gps_quality_live_plot = waypoint_follower.gps_quality_live_plot:main",
         ],
     },
 )

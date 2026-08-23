@@ -2289,3 +2289,22 @@ publish 안 함 - `on_imu()`/`on_mag()`가 이 세션 내내 한 번도 안 불�
 자체를 키우는 것도 별도로 도움 됨).
 
 두 수정 다 IMU 없이 순수 GPS 이동거리만으로 동작. 아직 실차 테스트 안 됨.
+
+## 2026-08-19 (이어서): `gps_quality_live_plot` 노드 추가 - EMI 차폐 테스트용 실시간 그래프
+
+알루미늄 호일 등으로 ZED 감싸서 EMI 차폐 효과 테스트할 때, 텍스트
+모니터(`gps_quality_monitor`)로는 변화 속도/패턴을 직관적으로 보기
+어려워서 실시간 그래프 버전 추가.
+
+`waypoint_follower/gps_quality_live_plot.py` (`ros2 run waypoint_follower
+gps_quality_live_plot`) - matplotlib `FuncAnimation`으로 0.5초마다
+갱신, 최근 `window_sec`(기본 120초) 롤링 윈도우:
+1. `carrSoln` 계단식 (NONE/FLOAT/FIXED)
+2. `h_acc`(cm, log 스케일)
+3. `jam_ind` + `jamming_state` 배경색(초록/노랑/빨강)
+4. `noise_per_ms` + `numSV`(트윈 축)
+
+가짜 데이터(재밍 심한 구간 → 개선된 구간)로 렌더링 로직은 검증함(PNG
+저장해서 확인) - 실제 `/navpvt`/`/monhw` 토픽 연결한 실차 테스트는
+아직 안 함. rclpy 스핀은 백그라운드 스레드, matplotlib는 메인 스레드
+(GUI 필요, 디스플레이 있는 환경에서 실행).

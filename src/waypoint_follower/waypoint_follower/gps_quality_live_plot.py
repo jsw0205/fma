@@ -25,10 +25,20 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.font_manager as fm
 
 import rclpy
 from rclpy.node import Node
 from ublox_msgs.msg import NavPVT, MonHW
+
+# 한글 폰트 - 이거 없으면 그래프 제목/라벨의 한글이 네모(□)로 깨짐.
+# 이 워크스페이스의 다른 시각화 스크립트들과 동일한 폴백 순서.
+for _cand in ["NanumGothic", "Noto Sans CJK KR", "Noto Sans KR", "Malgun Gothic"]:
+    _matches = [f for f in fm.fontManager.ttflist if _cand.lower() in f.name.lower()]
+    if _matches:
+        plt.rcParams["font.family"] = _matches[0].name
+        break
+plt.rcParams["axes.unicode_minus"] = False
 
 CARR_SOLN_NAMES = {0: "NONE", 64: "FLOAT", 128: "FIXED"}
 CARR_SOLN_Y = {0: 0, 64: 1, 128: 2}
@@ -94,6 +104,10 @@ def main():
     fig, axes = plt.subplots(4, 1, figsize=(13, 10), sharex=True)
     fig.suptitle("GPS 품질 실시간 모니터 - EMI 차폐 테스트용 "
                   "(알루미늄 호일 씌우고/떼면서 변화 확인)", fontsize=13, fontweight="bold")
+    # 프레임마다 갱신할 "현재값" 텍스트 - 매번 지웠다 새로 만들면 suptitle까지
+    # 같이 날아가버려서(fig.texts에 같이 들어있음), 한 번만 만들어두고 이후엔
+    # set_text()로만 내용을 바꾼다.
+    now_text = fig.text(0.5, 0.955, "", ha="center", fontsize=10, color="darkred")
 
     ax_carr, ax_acc, ax_jam, ax_noise = axes
 
@@ -156,12 +170,15 @@ def main():
                    f"h_acc={buf['h_acc_cm'][-1]:.1f}cm  "
                    f"jam_ind={buf['jam_ind'][-1]}/255  "
                    f"jamming={JAMMING_NAMES.get(jam_states[-1] if jam_states else 0,'?')}")
-            fig.texts.clear()
-            fig.text(0.5, 0.955, txt, ha="center", fontsize=10, color="darkred")
+            now_text.set_text(txt)
 
         plt.tight_layout(rect=[0, 0, 1, 0.94])
 
     ani = animation.FuncAnimation(fig, redraw, interval=500, cache_frame_data=False)
+    # ani를 로컬 변수로만 두면 일부 환경(백엔드/GC 타이밍)에서 참조가 끊겨
+    # 애니메이션이 첫 프레임 이후 멈추는 matplotlib의 잘 알려진 함정이 있음 -
+    # fig에 강한 참조를 하나 더 걸어서 plt.show() 도는 동안 확실히 살아있게 함.
+    fig._anim_ref = ani
     plt.show()
 
     rclpy.shutdown()

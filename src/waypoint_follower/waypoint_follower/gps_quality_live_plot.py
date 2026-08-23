@@ -47,10 +47,11 @@ JAMMING_NAMES = {0: "UNKNOWN/OFF", 4: "OK", 8: "WARNING", 12: "CRITICAL"}
 
 
 class GpsQualityLivePlot(Node):
-    def __init__(self, buf):
+    def __init__(self, buf, lock):
         super().__init__("gps_quality_live_plot")
         self.declare_parameter("window_sec", 120.0)
         self.buf = buf
+        self.lock = lock
         self.t0 = self.get_clock().now()
         self.create_subscription(NavPVT, "/navpvt", self._on_navpvt, 10)
         self.create_subscription(MonHW, "/monhw", self._on_monhw, 10)
@@ -64,19 +65,25 @@ class GpsQualityLivePlot(Node):
     def _on_navpvt(self, msg):
         t = self._now_s()
         carr = msg.flags & msg.FLAGS_CARRIER_PHASE_MASK
-        self.buf["t_pvt"].append(t)
-        self.buf["carr"].append(CARR_SOLN_Y.get(carr, 0))
-        self.buf["h_acc_cm"].append(msg.h_acc / 10.0)
-        self.buf["num_sv"].append(msg.num_sv)
-        self.buf["p_dop"].append(msg.p_dop / 100.0)
+        # navpvt 쪽 5개 deque는 항상 같은 개수를 유지해야 함(redraw에서
+        # zip해서 씀) - 락 없이 하나씩 append하면 그 사이 redraw가 끼어들어
+        # 길이가 어긋나서 plot()이 ValueError로 죽는 문제가 있었음(실측
+        # 확인됨). 락으로 5개 append를 원자적으로 묶는다.
+        with self.lock:
+            self.buf["t_pvt"].append(t)
+            self.buf["carr"].append(CARR_SOLN_Y.get(carr, 0))
+            self.buf["h_acc_cm"].append(msg.h_acc / 10.0)
+            self.buf["num_sv"].append(msg.num_sv)
+            self.buf["p_dop"].append(msg.p_dop / 100.0)
 
     def _on_monhw(self, msg):
         t = self._now_s()
-        self.buf["t_hw"].append(t)
-        self.buf["jam_ind"].append(msg.jam_ind)
         jstate = msg.flags & msg.FLAGS_JAMMING_STATE_MASK
-        self.buf["jam_state"].append(jstate)
-        self.buf["noise"].append(msg.noise_per_ms)
+        with self.lock:
+            self.buf["t_hw"].append(t)
+            self.buf["jam_ind"].append(msg.jam_ind)
+            self.buf["jam_state"].append(jstate)
+            self.buf["noise"].append(msg.noise_per_ms)
 
 
 def ros_spin_thread(node):
@@ -95,7 +102,8 @@ def main():
         "jam_state": deque(maxlen=maxlen), "noise": deque(maxlen=maxlen),
     }
 
-    node = GpsQualityLivePlot(buf)
+    lock = threading.Lock()
+    node = GpsQualityLivePlot(buf, lock)
     window_sec = node.get_parameter("window_sec").value
 
     spin_t = threading.Thread(target=ros_spin_thread, args=(node,), daemon=True)
@@ -112,16 +120,29 @@ def main():
     ax_carr, ax_acc, ax_jam, ax_noise = axes
 
     def redraw(_frame):
+        # 락 안에서 딱 스냅샷만 뜨고 바로 나옴 - ROS 콜백 스레드를 오래
+        # 막지 않게. plot()에 넘기는 x/y 쌍은 항상 같은 스냅샷에서 나온
+        # 리스트라 길이가 어긋날 일이 없음(예전엔 buf[...]를 하나씩 따로
+        # list()해서 그 사이 콜백이 끼어들면 길이가 안 맞아 ValueError로
+        # 애니메이션이 죽었었음 - "실시간으로 안됨"의 진짜 원인).
+        with lock:
+            t_pvt = list(buf["t_pvt"])
+            carr = list(buf["carr"])
+            h_acc_cm = list(buf["h_acc_cm"])
+            num_sv = list(buf["num_sv"])
+            t_hw = list(buf["t_hw"])
+            jam_ind = list(buf["jam_ind"])
+            jam_states = list(buf["jam_state"])
+            noise = list(buf["noise"])
+
         for ax in axes:
             ax.cla()
 
-        t_pvt = list(buf["t_pvt"])
-        t_hw = list(buf["t_hw"])
         now = max([t_pvt[-1] if t_pvt else 0.0, t_hw[-1] if t_hw else 0.0])
         lo = max(0.0, now - window_sec)
 
         # 1) carrSoln
-        ax_carr.step(t_pvt, list(buf["carr"]), where="post", color="tab:blue", linewidth=1.5)
+        ax_carr.step(t_pvt, carr, where="post", color="tab:blue", linewidth=1.5)
         ax_carr.set_yticks([0, 1, 2])
         ax_carr.set_yticklabels(["NONE", "FLOAT", "FIXED"])
         ax_carr.set_ylim(-0.3, 2.3)
@@ -129,18 +150,17 @@ def main():
         ax_carr.grid(True, alpha=0.3)
 
         # 2) h_acc
-        ax_acc.plot(t_pvt, list(buf["h_acc_cm"]), color="tab:purple", linewidth=1.0)
+        ax_acc.plot(t_pvt, h_acc_cm, color="tab:purple", linewidth=1.0)
         ax_acc.set_ylabel("h_acc (cm)")
         ax_acc.set_title("수평 오차 추정치 (낮을수록 좋음, log 스케일)", fontsize=11, loc="left")
         ax_acc.set_yscale("log")
         ax_acc.grid(True, alpha=0.3, which="both")
 
         # 3) jam_ind + jamming_state 배경
-        jam_states = list(buf["jam_state"])
         for i in range(len(t_hw) - 1):
             ax_jam.axvspan(t_hw[i], t_hw[i + 1],
                             color=JAMMING_COLORS.get(jam_states[i], "0.9"), alpha=0.6, linewidth=0)
-        ax_jam.plot(t_hw, list(buf["jam_ind"]), color="black", linewidth=1.2)
+        ax_jam.plot(t_hw, jam_ind, color="black", linewidth=1.2)
         ax_jam.set_ylabel("jam_ind (0-255)")
         ax_jam.set_ylim(0, 255)
         ax_jam.set_title("재밍 지표 (배경색: 초록=OK 노랑=WARNING 빨강=CRITICAL)",
@@ -148,11 +168,11 @@ def main():
         ax_jam.grid(True, alpha=0.3)
 
         # 4) noise_per_ms + numSV (twin axis)
-        ax_noise.plot(t_hw, list(buf["noise"]), color="tab:red", linewidth=1.0, label="noise_per_ms")
+        ax_noise.plot(t_hw, noise, color="tab:red", linewidth=1.0, label="noise_per_ms")
         ax_noise.set_ylabel("noise_per_ms", color="tab:red")
         ax_noise.tick_params(axis="y", labelcolor="tab:red")
         ax_noise2 = ax_noise.twinx()
-        ax_noise2.plot(t_pvt, list(buf["num_sv"]), color="tab:green", linewidth=1.0,
+        ax_noise2.plot(t_pvt, num_sv, color="tab:green", linewidth=1.0,
                         alpha=0.7, label="numSV")
         ax_noise2.set_ylabel("numSV", color="tab:green")
         ax_noise2.tick_params(axis="y", labelcolor="tab:green")
@@ -164,11 +184,11 @@ def main():
             ax.set_xlim(lo, max(now, lo + 5))
 
         # 현재값 텍스트 요약 (최신 샘플)
-        if buf["carr"] and buf["h_acc_cm"] and buf["jam_ind"]:
-            carr_now = {v: k for k, v in CARR_SOLN_Y.items()}[buf["carr"][-1]]
+        if carr and h_acc_cm and jam_ind:
+            carr_now = {v: k for k, v in CARR_SOLN_Y.items()}[carr[-1]]
             txt = (f"NOW: carrSoln={CARR_SOLN_NAMES.get(carr_now,'?')}  "
-                   f"h_acc={buf['h_acc_cm'][-1]:.1f}cm  "
-                   f"jam_ind={buf['jam_ind'][-1]}/255  "
+                   f"h_acc={h_acc_cm[-1]:.1f}cm  "
+                   f"jam_ind={jam_ind[-1]}/255  "
                    f"jamming={JAMMING_NAMES.get(jam_states[-1] if jam_states else 0,'?')}")
             now_text.set_text(txt)
 

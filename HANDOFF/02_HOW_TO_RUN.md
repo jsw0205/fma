@@ -3,6 +3,31 @@
 모든 명령어는 `source ~/ros2_ws/install/setup.bash` 이후 기준
 (워크스페이스 빌드 안 했으면 `cd ~/ros2_ws && colcon build` 먼저).
 
+## -1. 사전 요구사항 (다른 컴퓨터에 처음 세팅할 때 필수, 2026-08-25 추가)
+
+**ZED SDK 버전이 안 맞으면 카메라 쪽이 아예 안 켜짐** - 실제로 팀원
+컴퓨터에서 이걸로 막힌 사례 있었음. `zed-ros2-wrapper`(`src/zed-ros2-
+wrapper`)는 소스에서 빌드되면서 그 컴퓨터에 설치된 ZED SDK를 링크하는데,
+메이저 버전이 안 맞으면 빌드 또는 실행 시점에 바로 거부함.
+
+- **이 프로젝트가 검증된 버전: ZED SDK 5.4.1** (2026-07-28 세션에 설치,
+  README 참고). 다른 버전(특히 메이저 다른 버전)이 깔려있으면 카메라
+  안 켜짐.
+- ZED SDK 5.4.1은 **CUDA 13.0 이상** 요구 - 그래픽 드라이버가 낮으면
+  SDK 설치 자체가 실패하거나 런타임에 에러남. `nvidia-smi`로 드라이버
+  버전 먼저 확인.
+- **설치된 SDK 버전 확인 방법**:
+  ```bash
+  python3 -c "import pyzed.sl as sl; print(sl.Camera().get_sdk_version())"
+  ```
+  이 명령어가 에러나면 SDK 자체가 안 깔린 것. 버전이 `5.4.1`이 아니면
+  그게 "SDK 버전 안 맞음" 에러의 직접 원인.
+- **설치**: [stereolabs.com/developers/release](https://www.stereolabs.com/developers/release)
+  에서 **정확히 5.4.1**로 받을 것 - 최신 버전 받으면 이 워크스페이스의
+  `zed-ros2-wrapper` 빌드랑 안 맞을 수 있음.
+- 카메라 없이 GPS/CAN/신호등만 테스트할 거면 이 항목 무시해도 됨 -
+  ZED SDK는 `zed_camera` 패키지(주행용 차선인식) 쓸 때만 필요.
+
 ## 0. CAN 인터페이스 켜기 (실제 차량 제어 시 필수)
 
 ```bash

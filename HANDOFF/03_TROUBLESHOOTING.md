@@ -47,6 +47,15 @@ successfully" 로그 찍은 뒤에만 `rtk_bridge.py` 시작해야 함
 
 ## 카메라/GPU 관련
 
+### 다른 컴퓨터에서 "ZED SDK 버전이 안 맞다"고 카메라가 안 켜짐
+`zed-ros2-wrapper`가 설치된 ZED SDK 메이저 버전에 안 맞으면 빌드/실행이
+바로 거부됨 - 실제 팀원 컴퓨터에서 겪은 사례. 확인/해결법은
+`02_HOW_TO_RUN.md`의 "-1. 사전 요구사항" 항목 참고 - 요약하면
+**ZED SDK 정확히 5.4.1** + **CUDA 13.0 이상** 필요. 설치 버전 확인:
+```bash
+python3 -c "import pyzed.sl as sl; print(sl.Camera().get_sdk_version())"
+```
+
 ### ZED가 "NO GPU DETECTED"라고 나옴 (드라이버는 멀쩡한데)
 `nvidia-smi`는 정상인데 `python3 -c "import torch; print(torch.cuda.is_available())"`가
 `False`거나 "CUDA unknown error"면 — **노트북 절전모드(sleep)/뚜껑

@@ -1,5 +1,7 @@
 # ros2_ws
 
+> 🇰🇷 한국어 버전: [README.ko.md](README.ko.md)
+
 _Last updated: 2026-08-03_
 
 GPS/RTK waypoint following for the rover. u-blox ZED-F9P + NTRIP RTK, IMU
